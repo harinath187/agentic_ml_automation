@@ -1,0 +1,191 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f5f6fa;
+  color: #1a1a1a;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+header h1 {
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  color: #555;
+  margin-top: 0;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e0e0e6;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card.warning {
+  background: #fff8e1;
+  border-color: #f0c96a;
+}
+
+.card.error-card {
+  background: #fdecea;
+  border-color: #e57373;
+}
+
+textarea, input[type="text"], input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  font-size: 0.95em;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.field-row {
+  display: flex;
+  gap: 24px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.field-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85em;
+  color: #444;
+}
+
+.field-row input {
+  width: 160px;
+}
+
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 16px;
+  margin: 8px 0 16px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+}
+
+button {
+  background: #2a2a6a;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 1em;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.error {
+  color: #c0392b;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85em;
+  overflow-x: auto;
+  display: block;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  background: #f0f0f5;
+}
+
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 60px;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-label {
+  font-size: 0.85em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.best-badge {
+  background: #2e7d32;
+  color: #fff;
+  font-size: 0.7em;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.bar-track {
+  background: #eee;
+  border-radius: 4px;
+  height: 14px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  background: #7a7ad6;
+  height: 100%;
+}
+
+.bar-fill-best {
+  background: #2e7d32;
+}
+
+.bar-value {
+  font-size: 0.8em;
+  text-align: right;
+}
+
+.report-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.report-frame {
+  width: 100%;
+  height: 700px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}

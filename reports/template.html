@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ML Pipeline Recommendation Report</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 900px; margin: 40px auto; color: #1a1a1a; line-height: 1.5; }
+  h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { margin-top: 32px; color: #2a2a6a; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  th { background: #f0f0f5; }
+  .best { background: #e6f7e6; font-weight: bold; }
+  .meta { color: #666; font-size: 0.9em; }
+</style>
+</head>
+<body>
+  <h1>ML Pipeline Recommendation Report</h1>
+  <p class="meta">Generated: {{ generated_at }}</p>
+
+  <h2>Business Problem</h2>
+  <p>{{ business_description }}</p>
+  <p>{{ content.problem_summary }}</p>
+
+  <h2>Approach Taken</h2>
+  <p>{{ content.approach_taken }}</p>
+  <p><strong>Problem type:</strong> {{ plan.problem_type }} &nbsp; <strong>Target column:</strong> {{ plan.target_column }}</p>
+  {% if plan.scope_strategy %}
+  <p><strong>Entity scope:</strong> {{ plan.scope_strategy }}
+    {% if plan.entity_column %} (entity column: {{ plan.entity_column }}{% if plan.entity_filter_value %}, value: {{ plan.entity_filter_value }}{% endif %}){% endif %}
+  </p>
+  <p class="meta">{{ plan.entity_selection_reasoning }}</p>
+  {% endif %}
+
+  <h2>Models Compared</h2>
+  <p>{{ content.models_compared }}</p>
+  <p class="meta">
+    Evaluation metric: {{ metrics.eval_metric }}
+    {% if metrics.per_entity %} &nbsp;|&nbsp; entities trained: {{ metrics.entities_trained }}{% if metrics.entities_truncated %} (capped){% endif %}{% endif %}
+  </p>
+  <p class="meta">{% if metrics.per_entity %}Scores below are averaged across entities.{% endif %}</p>
+  <table>
+    <tr><th>Model</th><th>Test score</th><th>Validation score</th><th>Fit time (s)</th></tr>
+    {% for name, m in metrics.models.items() %}
+    <tr class="{{ 'best' if name == decision.best_model else '' }}">
+      <td>{{ name }}</td><td>{{ m.score_test }}</td><td>{{ m.score_val }}</td><td>{{ m.fit_time_s }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% if metrics.per_entity %}
+  <h3>Per-entity breakdown</h3>
+  <table>
+    <tr><th>Entity</th><th>Best model (this entity)</th><th>Test score</th></tr>
+    {% for entity_id, entity_metrics in metrics.per_entity.items() %}
+    {% set entity_best = entity_metrics.autogluon_best_model %}
+    <tr>
+      <td>{{ entity_id }}</td>
+      <td>{{ entity_best }}</td>
+      <td>{{ entity_metrics.models[entity_best].score_test if entity_best in entity_metrics.models else "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if metrics.entities_skipped %}
+  <p class="meta">Skipped {{ metrics.entities_skipped|length }} entities (insufficient data or a training error):
+    {% for s in metrics.entities_skipped %}{{ s.entity }} ({{ s.reason }}){{ ", " if not loop.last }}{% endfor %}
+  </p>
+  {% endif %}
+  {% endif %}
+
+  <h2>Final Recommendation</h2>
+  <p><strong>{{ decision.best_model }}</strong></p>
+  <p>{{ content.final_recommendation }}</p>
+
+  <h2>Business Impact</h2>
+  <p>{{ content.business_impact }}</p>
+
+  <h2>Caveats &amp; Limitations</h2>
+  <p>{{ content.caveats_and_limitations }}</p>
+</body>
+</html>
