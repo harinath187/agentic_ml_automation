@@ -6,11 +6,24 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from tools.cleaning import NUMERIC_TEXT_MIN_PARSE_RATIO, _parse_numeric_text
+
 
 def run_eda(df: pd.DataFrame, sensitive_columns: Optional[list[str]] = None) -> dict:
     sensitive = set(sensitive_columns or [])
     cols = [c for c in df.columns if c not in sensitive]
-    working = df[cols]
+    working = df[cols].copy()
+
+    # Coerce messy-but-mostly-numeric text columns (e.g. "total_sqft" mixing
+    # plain values with "2100 - 2850" ranges) the same way tools/cleaning.py
+    # does, so outlier/correlation/distribution stats below don't silently
+    # skip them just because EDA runs before cleaning's own conversion.
+    text_cols = working.select_dtypes(include=["object", "category"]).columns.tolist()
+    for col in text_cols:
+        parsed = _parse_numeric_text(working[col])
+        non_null = working[col].notna().sum()
+        if non_null and parsed.notna().sum() / non_null >= NUMERIC_TEXT_MIN_PARSE_RATIO:
+            working[col] = parsed
 
     numeric_cols = working.select_dtypes(include=[np.number]).columns.tolist()
 

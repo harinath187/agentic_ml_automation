@@ -52,23 +52,74 @@ def train_models(
     )
     predictor.fit(train_data=train, time_limit=time_limit)
 
+    # Deferred imports: keep automl_training.py's module-load cost limited to
+    # the AutoGluon dependency it always needed, matching the existing
+    # `from autogluon.tabular import TabularPredictor` pattern above.
+    from agents.schemas import ProblemType as _ProblemType
+    from tools.evaluation import compute_metrics
+
+    problem_type_enum = _ProblemType(problem_type)
+    y_true = test[target_column]
+    y_train = train[target_column] if problem_type == "forecasting" else None
+
     leaderboard = predictor.leaderboard(test, silent=True)
     metrics: dict = {}
     for _, row in leaderboard.iterrows():
-        metrics[row["model"]] = {
+        raw_name = row["model"]
+
+        # Best-effort per-model MAE/R2/MAPE/etc breakdown (Fix 2) - AutoGluon's
+        # leaderboard only exposes a single score_test/score_val per row, so
+        # every candidate but the "best" one otherwise never gets more than
+        # that one number. One bad row (e.g. a stacked model that can't be
+        # re-predicted individually) must not sink the others.
+        row_metrics: dict = {}
+        try:
+            preds = predictor.predict(test, model=raw_name)
+            y_proba = None
+            if problem_type == "classification":
+                try:
+                    proba = predictor.predict_proba(test, model=raw_name)
+                    if proba.shape[1] == 2:
+                        y_proba = proba.iloc[:, 1].to_numpy()
+                except Exception:  # noqa: BLE001 - roc_auc is supplementary
+                    y_proba = None
+            row_metrics = compute_metrics(problem_type_enum, y_true, preds, y_proba=y_proba, y_train=y_train)
+        except Exception:  # noqa: BLE001 - the leaderboard's own score_test/score_val is still authoritative
+            row_metrics = {}
+
+        # Namespaced (Fix 3) so this candidate can never collide with/be
+        # confused for a same-family custom candidate (e.g. tools/model_registry.py's
+        # own "lightgbm" vs AutoGluon's "LightGBM" leaderboard row) - every
+        # downstream consumer (tools/model_runner.py, reports/template.html)
+        # reads this same prefixed name, so nothing else needs to change.
+        metrics[f"autogluon_{raw_name}"] = {
             "score_test": round(float(row["score_test"]), 4),
             "score_val": round(float(row["score_val"]), 4),
             "fit_time_s": round(float(row["fit_time"]), 3) if row["fit_time"] is not None else None,
+            "metrics": row_metrics,
         }
 
-    best_model = predictor.model_best
+    best_model = f"autogluon_{predictor.model_best}"
     eval_metric = str(predictor.eval_metric)
+
+    # Best-effort, single predict() call on the already-fit best model - only
+    # used for report charts (tools/report_charts.py); never breaks training
+    # if it fails, and never changes any existing key's value.
+    best_model_predictions = None
+    try:
+        preds = predictor.predict(test)
+        best_model_predictions = (
+            [str(v) for v in preds.tolist()] if problem_type == "classification" else [float(v) for v in preds.tolist()]
+        )
+    except Exception:  # noqa: BLE001 - predictions are supplementary, scores above are authoritative
+        best_model_predictions = None
 
     return {
         "eval_metric": eval_metric,
         "models": metrics,
         "autogluon_best_model": best_model,
         "model_path": str(run_dir),
+        "best_model_predictions": best_model_predictions,
     }
 
 

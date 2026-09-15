@@ -7,14 +7,19 @@ summaries - never raw DataFrame rows. See data_ingestion/loader.py.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import time
-from typing import Type, TypeVar
+from typing import Optional, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from tools.logging_config import get_logger
+
 T = TypeVar("T", bound=BaseModel)
+
+logger = get_logger(__name__)
 
 DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
@@ -24,6 +29,18 @@ DEFAULT_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 RATE_LIMIT_MAX_ATTEMPTS = 5
 RATE_LIMIT_BASE_DELAY_S = 2.0
 RATE_LIMIT_MAX_DELAY_S = 30.0
+
+# Last-resort prompt-size guard (Phase 9 413-fix). ~24000 chars is roughly
+# 6000 tokens at ~4 chars/token, leaving margin under Groq free-tier's 8000
+# TPM cap for openai/gpt-oss-120b once the system prompt/schema hint and
+# response tokens are accounted for. This is NOT the primary fix - call
+# sites (agents/evaluator.py, agents/recommender.py, agents/reporter.py)
+# should already be sending a trimmed view (tools.evaluation.to_llm_summary()
+# or equivalent) long before a prompt could reach this size. This guard
+# exists only so an oversized prompt becomes a loud, logged, debuggable
+# event during development instead of a silent Groq 413 at request time.
+DEFAULT_MAX_PROMPT_CHARS = 24000
+_TRUNCATION_MARKER = "\n\n[...truncated - payload exceeded token budget...]"
 
 
 class LLMCallError(RuntimeError):
@@ -79,12 +96,27 @@ def _parse_retry_after(exc) -> float | None:
         return None
 
 
+def _infer_caller_name() -> str:
+    """Best-effort module name of call_llm_json's caller, for the prompt-size
+    warning log below - never required (pass `caller_name` explicitly to
+    skip this), and never allowed to fail the call if introspection can't
+    find a frame for some reason (e.g. an unusual execution environment).
+    """
+    try:
+        frame = inspect.stack()[2].frame
+        return frame.f_globals.get("__name__", "unknown")
+    except Exception:  # noqa: BLE001 - purely diagnostic, never fatal
+        return "unknown"
+
+
 def call_llm_json(
     system_prompt: str,
     user_prompt: str,
     schema: Type[T],
     max_retries: int = 3,
     model: str = DEFAULT_MODEL,
+    max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    caller_name: Optional[str] = None,
 ) -> T:
     """Call the LLM and parse+validate its response against `schema`.
 
@@ -92,7 +124,28 @@ def call_llm_json(
     up to `max_retries` attempts total, then raises LLMCallError. Rate-limit
     (429) responses are retried with backoff separately and don't consume
     this validation-retry budget.
+
+    `max_prompt_chars` is a last-resort safety net (see DEFAULT_MAX_PROMPT_CHARS
+    above): if `system_prompt` + `user_prompt` exceeds it, this logs a
+    warning naming `caller_name` (inferred from the call stack when omitted)
+    and truncates `user_prompt` to fit before ever calling Groq. Callers
+    should trim their own payload (tools.evaluation.to_llm_summary() or
+    equivalent) well before this triggers - it's a safety net, not the fix.
     """
+    caller_name = caller_name or _infer_caller_name()
+    total_chars = len(system_prompt) + len(user_prompt)
+    if total_chars > max_prompt_chars:
+        logger.warning(
+            "llm_prompt_exceeds_budget",
+            extra={
+                "caller": caller_name,
+                "total_chars": total_chars,
+                "budget_chars": max_prompt_chars,
+            },
+        )
+        keep_chars = max(0, max_prompt_chars - len(system_prompt) - len(_TRUNCATION_MARKER))
+        user_prompt = user_prompt[:keep_chars] + _TRUNCATION_MARKER
+
     client = _get_client()
     schema_hint = (
         "Respond with ONLY a single valid JSON object matching this schema "

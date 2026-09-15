@@ -29,6 +29,11 @@ export async function getRun(runId) {
   return handle(res);
 }
 
+export async function cancelRun(runId) {
+  const res = await fetch(`${BASE}/runs/${runId}/cancel`, { method: "POST" });
+  return handle(res);
+}
+
 export function reportUrl(runId) {
   return `${BASE}/runs/${runId}/report`;
 }

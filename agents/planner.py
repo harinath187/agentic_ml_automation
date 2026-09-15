@@ -1,8 +1,10 @@
-"""Planner Agent: turns a business description + dataset schema into a PipelinePlan.
+"""Planner Agent: turns a business description + dataset schema into an
+ExperimentPlan - a shortlist of candidate approaches to test, NOT a final
+model decision (the Evaluator Agent picks the winner after training).
 
 Only ever receives `schema_summary` (from data_ingestion.loader.extract_schema),
 free-text business context, and the deterministic Data Intelligence report
-(tools/profiling.py) - never a DataFrame.
+(tools/profiling.py, tools/problem_detection.py) - never a DataFrame.
 """
 from __future__ import annotations
 
@@ -10,7 +12,13 @@ import json
 from typing import Optional
 
 from agents.llm_client import call_llm_json
-from agents.schemas import DataQualityReport, DatasetProfile, PipelinePlan, TargetAnalysis
+from agents.schemas import (
+    DataQualityReport,
+    DatasetProfile,
+    ExperimentPlan,
+    ProblemDefinition,
+    TargetAnalysis,
+)
 
 SYSTEM_PROMPT = """You are the Planner Agent in an automated ML pipeline.
 You are given a business problem description, a dataset schema summary
@@ -19,19 +27,31 @@ aggregated stats only - never raw rows), and - when available - a
 deterministic Data Intelligence report computed upstream without any LLM:
 a DatasetProfile (row/column counts, per-column type/cardinality/missingness,
 duplicate rows, constant columns), a TargetAnalysis (candidate target columns
-with cardinality/type signals - a shortlist, not a decision), and a
+with cardinality/type signals - a shortlist, not a decision), a
 DataQualityReport (missing values, duplicates, possible outliers, invalid
-dtypes, suspicious ID-like columns, heuristic leakage flags).
+dtypes, suspicious ID-like columns, heuristic leakage flags), and a
+ProblemDefinition (deterministic classification/regression/forecasting
+detection, plus time-series signals - datetime column, item/entity column,
+frequency, time range, missing periods, seasonality, trend - when a datetime
+column exists).
 
 Treat the Data Intelligence report as ground truth for anything it already
 measured deterministically (e.g. exact cardinality, duplicate counts, which
-columns are constant or ID-like) - do not re-derive or contradict those
-numbers. Use TargetAnalysis.candidate_targets to narrow which column is the
-target, but still decide using the business description: the deterministic
-signals rank candidates, they do not choose FOR you. If DataQualityReport
-flags possible_leakage_columns, avoid recommending that column as a feature
-alongside the target unless the business description clearly explains why
-it is legitimate.
+columns are constant or ID-like, ProblemDefinition.time_series_signals) - do
+not re-derive or contradict those numbers. Use ProblemDefinition and
+TargetAnalysis.candidate_targets to narrow problem type and target column,
+but still decide using the business description whenever confidence is
+"medium" or "low": the deterministic signals rank candidates, they do not
+choose FOR you. If DataQualityReport flags possible_leakage_columns, avoid
+recommending that column as a feature alongside the target unless the
+business description clearly explains why it is legitimate.
+
+CRITICAL: You are producing an EXPERIMENT PLAN, not the final model choice.
+`candidate_model_families` must list multiple reasonable approaches to test
+(e.g. ['LightGBM', 'RandomForest', 'CatBoost']) - never a single "winning"
+model. The Evaluator Agent picks the best-performing candidate only after
+every one of them has actually been trained and scored; your job stops at
+proposing what to test and how to validate/score it.
 
 Your job is to decide:
 
@@ -41,12 +61,24 @@ Your job is to decide:
      business goal is predicting future values over time, not just
      explaining a static outcome.
 
-2. TARGET COLUMN
-   - The column to predict. Null for clustering.
+2. TARGET COLUMN AND FEATURE COLUMNS
+   - target_column: the column to predict. Null for clustering.
+   - feature_columns: the columns to use as model inputs. Exclude the
+     target, obvious ID-like/suspicious columns (see DataQualityReport), and
+     anything DataQualityReport flags as possible_leakage_columns unless the
+     business description clearly justifies including it.
+   - unmatched_business_requirements: if the business description mentions a
+     metric, attribute, or feature that has no reasonably-matching column in
+     the schema (even approximately), list the exact phrase here instead of
+     silently dropping it. Do not invent a column to satisfy it, and do not
+     set needs_clarification for this alone - it is an advisory flag for
+     human review, not a blocking ambiguity (see the CLARIFICATION RULE
+     below for what actually blocks).
 
 3. TIME COLUMN
    - Required if problem_type is forecasting. The datetime/date column
-     that defines the time axis.
+     that defines the time axis. Prefer
+     ProblemDefinition.time_series_signals.datetime_column when set.
 
 4. ENTITY / GROUPING STRUCTURE (do this for every dataset, not only when
    obviously relevant)
@@ -57,7 +89,8 @@ Your job is to decide:
      named anything - do not rely on specific column names like "Store"
      or "Customer_ID"; infer it from cardinality and repetition patterns
      in the schema summary, combined with what the business description
-     implies.
+     implies. Prefer ProblemDefinition.time_series_signals.item_column
+     when set.
    - If such a column exists, decide which SCOPE STRATEGY applies, based
      on the business description:
        a) "single_entity" - the business description asks for a forecast/
@@ -97,17 +130,46 @@ Your job is to decide:
      entity_selection_reasoning, even when the answer is "no grouping
      structure detected."
 
-5. PIPELINE STEPS
+5. VALIDATION STRATEGY AND EVALUATION METRICS
+   - validation_strategy: how candidates should be validated - time_series_
+     split for forecasting; stratified_k_fold or train_test_split for
+     classification; k_fold or train_test_split for regression.
+   - evaluation_metrics: metrics to score every candidate on, appropriate to
+     problem_type (e.g. ['roc_auc', 'f1'] for classification, ['rmse', 'mae']
+     for regression, ['mape', 'rmse'] for forecasting).
+
+6. FORECAST HORIZON
+   - When problem_type is forecasting, set forecast_horizon to the number of
+     future periods the business needs predicted, inferred from the business
+     description (default to a reasonable value like 7 or 30 if unstated).
+
+7. PREPROCESSING REQUIREMENTS
+   - List preprocessing steps needed before training, informed by
+     DataQualityReport (e.g. ['impute_missing', 'encode_categoricals',
+     'cap_outliers']).
+
+8. PIPELINE STEPS
    - An ordered list of steps to run, reflecting your decisions above
      (e.g. include a filtering/scoping step if scope_strategy is
      single_entity or per_entity).
 
-6. CANDIDATE MODELS
-   - A short list of model families to try, appropriate to the problem
-     type and scope strategy (e.g. prefer AutoGluon-TimeSeries with
-     item_id grouping for "hierarchical"; plain AutoGluon-Tabular with
-     the entity column as a feature for "pooled"; per-entity AutoGluon-
-     Tabular or TimeSeries runs for "per_entity" or "single_entity").
+9. CANDIDATE MODEL FAMILIES
+   - A short list of model families to TEST (not choose) from the registered
+     catalogue below - use these exact names so they resolve without
+     ambiguity (close variants like "Random Forest" are tolerated, but exact
+     names are preferred):
+       classification: baseline, logistic_regression, random_forest,
+         xgboost, lightgbm, autogluon_tabular
+       regression: baseline, linear_regression, random_forest, xgboost,
+         lightgbm, autogluon_tabular
+       forecasting: naive, seasonal_naive, ets, arima, sarima,
+         autogluon_timeseries
+   - Always include at least one simple baseline (baseline/naive) AND
+     autogluon_tabular/autogluon_timeseries, plus 1-3 others appropriate to
+     the data size and scope strategy (e.g. prefer autogluon_timeseries with
+     item_id grouping for "hierarchical"; a mix of classical and AutoGluon
+     candidates for "pooled"; keep the list short for "per_entity" or
+     "single_entity" since it is trained once per entity).
 
 CLARIFICATION RULE
 If the problem type, target column, or entity scope cannot be determined
@@ -126,7 +188,8 @@ def build_plan(
     dataset_profile: Optional[DatasetProfile] = None,
     quality_report: Optional[DataQualityReport] = None,
     target_analysis: Optional[TargetAnalysis] = None,
-) -> PipelinePlan:
+    problem_definition: Optional[ProblemDefinition] = None,
+) -> ExperimentPlan:
     prompt_parts = [
         f"Business problem description:\n{business_description}",
         f"Dataset schema summary (JSON):\n{json.dumps(schema_summary, indent=2)}",
@@ -137,6 +200,8 @@ def build_plan(
         prompt_parts.append(f"Target analysis (JSON):\n{target_analysis.model_dump_json(indent=2)}")
     if quality_report is not None:
         prompt_parts.append(f"Data quality report (JSON):\n{quality_report.model_dump_json(indent=2)}")
+    if problem_definition is not None:
+        prompt_parts.append(f"Problem definition (JSON):\n{problem_definition.model_dump_json(indent=2)}")
 
     user_prompt = "\n\n".join(prompt_parts)
-    return call_llm_json(SYSTEM_PROMPT, user_prompt, PipelinePlan)
+    return call_llm_json(SYSTEM_PROMPT, user_prompt, ExperimentPlan)

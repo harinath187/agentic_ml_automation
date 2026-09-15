@@ -13,6 +13,7 @@ import json
 from dotenv import load_dotenv
 
 from orchestration.graph import run_pipeline
+from tools.logging_config import configure_logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +32,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     load_dotenv()
+    configure_logging()
     args = parse_args()
     sensitive_columns = [c.strip() for c in args.sensitive_columns.split(",") if c.strip()]
 

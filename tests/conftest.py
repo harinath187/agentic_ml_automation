@@ -82,6 +82,28 @@ def forecasting_df() -> pd.DataFrame:
 
 
 @pytest.fixture
+def simple_timeseries_df() -> pd.DataFrame:
+    """Phase 10: the "simple time series" representative dataset - a single
+    entity, a clear linear trend, no seasonality, and small noise. Distinct
+    from `forecasting_df` (which has weekly seasonality) so the two fixtures
+    map onto Phase 10's "simple" vs. "seasonal" dataset categories without
+    duplicating each other's purpose.
+
+    The trend is deliberately large relative to the noise: it also serves
+    tests/test_phase10_e2e_validation.py's "traditional model beats
+    AutoGluon" check, since a holdout period past the end of a monotonic
+    trend is exactly the case tree-based regressors (AutoGluon's default
+    forecasting path) can't extrapolate but ETS/ARIMA can.
+    """
+    rng = np.random.default_rng(101)
+    n = 150
+    dates = pd.date_range("2023-01-01", periods=n, freq="D")
+    trend = np.linspace(100, 400, n)
+    noise = rng.normal(0, 3, n)
+    return pd.DataFrame({"date": dates, "sales": (trend + noise).round(2)})
+
+
+@pytest.fixture
 def multi_entity_forecasting_df() -> pd.DataFrame:
     """Sales by store - a small entity/grouping-structure dataset for scope-strategy tests."""
     rng = np.random.default_rng(21)

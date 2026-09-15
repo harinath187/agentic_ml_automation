@@ -2,43 +2,212 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ML Pipeline Recommendation Report</title>
+<title>ML Analysis Report</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 900px; margin: 40px auto; color: #1a1a1a; line-height: 1.5; }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; line-height: 1.5; }
   h1 { border-bottom: 2px solid #333; padding-bottom: 8px; }
-  h2 { margin-top: 32px; color: #2a2a6a; }
+  h2 { margin-top: 40px; color: #2a2a6a; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { margin-top: 20px; color: #333; }
   table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
   th { background: #f0f0f5; }
   .best { background: #e6f7e6; font-weight: bold; }
   .meta { color: #666; font-size: 0.9em; }
+  .toc { columns: 2; column-gap: 32px; background: #f7f7fb; border: 1px solid #ddd; padding: 12px 24px; border-radius: 6px; }
+  .toc li { margin: 2px 0; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
+  .badge-high, .badge-success, .badge-low-risk { background: #e6f7e6; color: #1a6b1a; }
+  .badge-medium { background: #fff4d6; color: #8a6300; }
+  .badge-low, .badge-high-risk { background: #fde6e6; color: #a01a1a; }
+  .status-success { color: #1a6b1a; }
+  .status-failed, .status-skipped_missing_dependency, .status-skipped_unsupported_validation_strategy { color: #a01a1a; }
+  .flag-banner { background: #fff4d6; border: 1px solid #e0b100; padding: 10px 16px; border-radius: 6px; margin: 12px 0; }
+  .chart-block { margin: 20px 0; }
+  .chart-block img { max-width: 100%; border: 1px solid #ddd; border-radius: 4px; }
+  .chart-caption { color: #666; font-size: 0.9em; margin-top: 4px; }
+  .metric-list { margin: 0; padding-left: 18px; }
+  code { background: #f0f0f5; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
 </style>
 </head>
 <body>
-  <h1>ML Pipeline Recommendation Report</h1>
+  <h1>ML Analysis Report</h1>
   <p class="meta">Generated: {{ generated_at }}</p>
 
-  <h2>Business Problem</h2>
-  <p>{{ business_description }}</p>
-  <p>{{ content.problem_summary }}</p>
+  <nav class="toc">
+    <ol>
+      <li><a href="#executive-summary">Executive Summary</a></li>
+      <li><a href="#dataset-overview">Dataset Overview</a></li>
+      <li><a href="#data-quality">Data Quality Findings</a></li>
+      <li><a href="#problem-definition">Problem Definition</a></li>
+      <li><a href="#experiment-plan">Experiment Plan</a></li>
+      <li><a href="#preprocessing">Preprocessing Performed</a></li>
+      <li><a href="#models-evaluated">Models Evaluated</a></li>
+      <li><a href="#validation-strategy">Validation Strategy</a></li>
+      <li><a href="#model-comparison">Model Comparison Table</a></li>
+      <li><a href="#recommended-model">Recommended Model</a></li>
+      <li><a href="#why-selected">Why This Model Was Selected</a></li>
+      <li><a href="#model-explanation">Model Explanation</a></li>
+      <li><a href="#business-interpretation">Business Interpretation</a></li>
+      <li><a href="#limitations">Model Limitations</a></li>
+      <li><a href="#charts">Charts &amp; Visualizations</a></li>
+    </ol>
+  </nav>
+  <p class="meta">Sections 7-9 cover model <strong>performance</strong> (what the numbers are), section 12 covers model <strong>explanation</strong> (how the model reaches its predictions), and section 13 covers business <strong>interpretation</strong> (what that means for the business) - kept deliberately separate.</p>
 
-  <h2>Approach Taken</h2>
-  <p>{{ content.approach_taken }}</p>
-  <p><strong>Problem type:</strong> {{ plan.problem_type }} &nbsp; <strong>Target column:</strong> {{ plan.target_column }}</p>
-  {% if plan.scope_strategy %}
-  <p><strong>Entity scope:</strong> {{ plan.scope_strategy }}
-    {% if plan.entity_column %} (entity column: {{ plan.entity_column }}{% if plan.entity_filter_value %}, value: {{ plan.entity_filter_value }}{% endif %}){% endif %}
+  <!-- 1. Executive Summary -->
+  <h2 id="executive-summary">1. Executive Summary</h2>
+  <p><strong>Business problem:</strong> {{ business_description }}</p>
+  <p>{{ content.executive_summary }}</p>
+
+  <!-- 2. Dataset Overview -->
+  <h2 id="dataset-overview">2. Dataset Overview</h2>
+  {% if dataset_profile %}
+  <table>
+    <tr><th>Rows</th><td>{{ dataset_profile.row_count }}</td>
+        <th>Columns</th><td>{{ dataset_profile.column_count }}</td></tr>
+    <tr><th>Numerical columns</th><td>{{ dataset_profile.numerical_columns|length }}</td>
+        <th>Categorical columns</th><td>{{ dataset_profile.categorical_columns|length }}</td></tr>
+    <tr><th>Datetime columns</th><td>{{ dataset_profile.datetime_columns|length }}</td>
+        <th>Boolean columns</th><td>{{ dataset_profile.boolean_columns|length }}</td></tr>
+    <tr><th>Duplicate rows</th><td>{{ dataset_profile.duplicate_row_count }} ({{ dataset_profile.duplicate_row_pct }}%)</td>
+        <th>Sensitive columns excluded</th><td>{{ dataset_profile.excluded_sensitive_column_count }}</td></tr>
+  </table>
+  {% if dataset_profile.constant_columns or dataset_profile.near_constant_columns %}
+  <p class="meta">
+    {% if dataset_profile.constant_columns %}Constant columns: {{ dataset_profile.constant_columns|join(', ') }}. {% endif %}
+    {% if dataset_profile.near_constant_columns %}Near-constant columns: {{ dataset_profile.near_constant_columns|join(', ') }}.{% endif %}
   </p>
-  <p class="meta">{{ plan.entity_selection_reasoning }}</p>
+  {% endif %}
+  {% else %}
+  <p class="meta">Dataset profile not available for this run.</p>
   {% endif %}
 
-  <h2>Models Compared</h2>
-  <p>{{ content.models_compared }}</p>
-  <p class="meta">
-    Evaluation metric: {{ metrics.eval_metric }}
-    {% if metrics.per_entity %} &nbsp;|&nbsp; entities trained: {{ metrics.entities_trained }}{% if metrics.entities_truncated %} (capped){% endif %}{% endif %}
+  <!-- 3. Data Quality Findings -->
+  <h2 id="data-quality">3. Data Quality Findings</h2>
+  {% if data_quality_report %}
+  <p><strong>Overall quality score:</strong>
+    <span class="badge {{ 'badge-high' if data_quality_report.overall_quality_score >= 80 else ('badge-medium' if data_quality_report.overall_quality_score >= 50 else 'badge-low') }}">
+      {{ data_quality_report.overall_quality_score }} / 100
+    </span>
   </p>
-  <p class="meta">{% if metrics.per_entity %}Scores below are averaged across entities.{% endif %}</p>
+  {% if data_quality_report.issues %}
+  <table>
+    <tr><th>Column</th><th>Issue</th><th>Severity</th><th>Detail</th></tr>
+    {% for issue in data_quality_report.issues %}
+    <tr>
+      <td>{{ issue.column if issue.column else "-" }}</td>
+      <td>{{ issue.issue_type }}</td>
+      <td><span class="badge {{ 'badge-low' if issue.severity == 'high' else ('badge-medium' if issue.severity == 'medium' else 'badge-high') }}">{{ issue.severity }}</span></td>
+      <td>{{ issue.detail }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="meta">No data quality issues detected.</p>
+  {% endif %}
+  {% if data_quality_report.possible_leakage_columns %}
+  <p class="meta"><strong>Possible leakage columns (heuristic):</strong> {{ data_quality_report.possible_leakage_columns|join(', ') }}</p>
+  {% endif %}
+  {% else %}
+  <p class="meta">Data quality report not available for this run.</p>
+  {% endif %}
+
+  <!-- 4. Problem Definition -->
+  <h2 id="problem-definition">4. Problem Definition</h2>
+  {% if problem_definition %}
+  <table>
+    <tr><th>Detected problem type</th><td>{{ problem_definition.detected_problem_type or "undetermined" }}</td></tr>
+    <tr><th>Confidence</th><td>
+      <span class="badge {{ 'badge-high' if problem_definition.confidence == 'high' else ('badge-medium' if problem_definition.confidence == 'medium' else 'badge-low') }}">
+        {{ problem_definition.confidence }}
+      </span>
+    </td></tr>
+    <tr><th>Reasoning</th><td>{{ problem_definition.reasoning }}</td></tr>
+  </table>
+  {% if problem_definition.time_series_signals %}
+  {% set tss = problem_definition.time_series_signals %}
+  <h3>Time-series signals</h3>
+  <table>
+    <tr><th>Datetime column</th><td>{{ tss.datetime_column }}</td>
+        <th>Item/entity column</th><td>{{ tss.item_column or "none detected" }}</td></tr>
+    <tr><th>Frequency</th><td>{{ tss.frequency or "irregular/unknown" }}</td>
+        <th>Time range</th><td>{{ tss.time_range.min if tss.time_range else "" }} &rarr; {{ tss.time_range.max if tss.time_range else "" }}</td></tr>
+    <tr><th>Missing periods</th><td>{{ tss.missing_periods_count }} ({{ tss.missing_periods_pct }}%)</td>
+        <th>&nbsp;</th><td>&nbsp;</td></tr>
+    <tr><th>Seasonality</th><td>{{ "Detected" if tss.seasonality_detected else "Not detected" }} - {{ tss.seasonality_notes }}</td>
+        <th>Trend</th><td>{{ "Detected" if tss.trend_detected else "Not detected" }} - {{ tss.trend_notes }}</td></tr>
+  </table>
+  {% endif %}
+  {% else %}
+  <p class="meta">Problem definition not available for this run.</p>
+  {% endif %}
+
+  <!-- 5. Experiment Plan -->
+  <h2 id="experiment-plan">5. Experiment Plan</h2>
+  <table>
+    <tr><th>Problem type</th><td>{{ plan.problem_type }}</td>
+        <th>Target column</th><td>{{ plan.target_column }}</td></tr>
+    <tr><th>Feature columns</th><td colspan="3">{{ plan.feature_columns|join(', ') if plan.feature_columns else "all remaining columns" }}</td></tr>
+    {% if plan.time_column %}<tr><th>Time column</th><td>{{ plan.time_column }}</td>
+        <th>Forecast horizon</th><td>{{ plan.forecast_horizon }}</td></tr>{% endif %}
+    {% if plan.scope_strategy %}
+    <tr><th>Entity scope</th><td colspan="3">
+      {{ plan.scope_strategy }}
+      {% if plan.entity_column %} (entity column: {{ plan.entity_column }}{% if plan.entity_filter_value %}, value: {{ plan.entity_filter_value }}{% endif %}){% endif %}
+      &mdash; {{ plan.entity_selection_reasoning }}
+    </td></tr>
+    {% endif %}
+    <tr><th>Candidate model families</th><td colspan="3">{{ plan.candidate_model_families|join(', ') }}</td></tr>
+    <tr><th>Evaluation metrics requested</th><td colspan="3">{{ plan.evaluation_metrics|join(', ') }}</td></tr>
+    {% if plan.preprocessing_requirements %}
+    <tr><th>Preprocessing requirements</th><td colspan="3">{{ plan.preprocessing_requirements|join(', ') }}</td></tr>
+    {% endif %}
+  </table>
+  <p class="meta">{{ plan.reasoning }}</p>
+
+  <!-- 6. Preprocessing Performed -->
+  <h2 id="preprocessing">6. Preprocessing Performed</h2>
+  {% if cleaning_log or feature_log or split_log %}
+  <table>
+    {% if cleaning_log %}
+    <tr><th>Duplicates removed</th><td>{{ cleaning_log.duplicates_removed }}</td></tr>
+    <tr><th>Imputation applied</th><td>{% for col, method in cleaning_log.imputation.items() %}{{ col }}: {{ method }}{{ ", " if not loop.last }}{% else %}none{% endfor %}</td></tr>
+    <tr><th>Outliers capped</th><td>{% for col, count in cleaning_log.outliers_capped.items() %}{{ col }}: {{ count }}{{ ", " if not loop.last }}{% else %}none{% endfor %}</td></tr>
+    <tr><th>Categorical columns encoded</th><td>{{ cleaning_log.encoded_columns|join(', ') if cleaning_log.encoded_columns else "none" }}</td></tr>
+    {% endif %}
+    {% if feature_log %}
+    <tr><th>Lag features</th><td>{{ feature_log.lag_features|join(', ') if feature_log.lag_features else "none" }}</td></tr>
+    <tr><th>Rolling features</th><td>{{ feature_log.rolling_features|join(', ') if feature_log.rolling_features else "none" }}</td></tr>
+    <tr><th>Date-part features</th><td>{{ feature_log.date_parts|join(', ') if feature_log.date_parts else "none" }}</td></tr>
+    <tr><th>Scaled columns</th><td>{{ feature_log.scaled_columns|length }} column(s)</td></tr>
+    {% endif %}
+    {% if split_log %}
+    <tr><th>Split method</th><td>{{ split_log.method }}</td></tr>
+    <tr><th>Train / test rows</th><td>{{ split_log.train_rows }} / {{ split_log.test_rows }}</td></tr>
+    {% endif %}
+  </table>
+  {% else %}
+  <p class="meta">Preprocessing was handled per-entity for this run's scope strategy and is not aggregated here.</p>
+  {% endif %}
+  <p>{{ content.approach_narrative }}</p>
+
+  <!-- 7. Models Evaluated -->
+  <h2 id="models-evaluated">7. Models Evaluated</h2>
+  {% if model_comparison %}
+  <p class="meta">Validation strategy: <strong>{{ model_comparison.results[0].validation_strategy if model_comparison.results else "n/a" }}</strong> &nbsp;|&nbsp; Primary metric: <strong>{{ model_comparison.primary_metric }}</strong> ({{ "higher is better" if model_comparison.higher_is_better else "lower is better" }})</p>
+  <table>
+    <tr><th>Model</th><th>Status</th><th>Training time (s)</th><th>Notes</th></tr>
+    {% for r in model_comparison.results %}
+    <tr class="{{ 'best' if r.model_name == model_comparison.winner else '' }}">
+      <td>{{ r.model_name }}</td>
+      <td class="status-{{ r.status }}">{{ r.status }}</td>
+      <td>{{ r.training_time if r.training_time is not none else "-" }}</td>
+      <td>{{ r.errors if r.errors else "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="meta">Evaluation metric: {{ metrics.eval_metric }}</p>
   <table>
     <tr><th>Model</th><th>Test score</th><th>Validation score</th><th>Fit time (s)</th></tr>
     {% for name, m in metrics.models.items() %}
@@ -47,9 +216,11 @@
     </tr>
     {% endfor %}
   </table>
+  {% endif %}
 
   {% if metrics.per_entity %}
   <h3>Per-entity breakdown</h3>
+  <p class="meta">Entities trained: {{ metrics.entities_trained }}{% if metrics.entities_truncated %} (capped){% endif %}. Scores below are averaged across entities in the table above.</p>
   <table>
     <tr><th>Entity</th><th>Best model (this entity)</th><th>Test score</th></tr>
     {% for entity_id, entity_metrics in metrics.per_entity.items() %}
@@ -68,14 +239,197 @@
   {% endif %}
   {% endif %}
 
-  <h2>Final Recommendation</h2>
-  <p><strong>{{ decision.best_model }}</strong></p>
-  <p>{{ content.final_recommendation }}</p>
+  <!-- 8. Validation Strategy -->
+  <h2 id="validation-strategy">8. Validation Strategy</h2>
+  {% if plan.validation_strategy %}
+  <table>
+    <tr><th>Strategy</th><td>{{ plan.validation_strategy.strategy_type }}</td></tr>
+    {% if plan.validation_strategy.folds %}<tr><th>Folds</th><td>{{ plan.validation_strategy.folds }}</td></tr>{% endif %}
+    {% if plan.validation_strategy.test_size %}<tr><th>Test size</th><td>{{ plan.validation_strategy.test_size }}</td></tr>{% endif %}
+    {% if plan.validation_strategy.notes %}<tr><th>Notes</th><td>{{ plan.validation_strategy.notes }}</td></tr>{% endif %}
+  </table>
+  {% else %}
+  <p class="meta">No explicit validation strategy was recorded for this plan.</p>
+  {% endif %}
+  {% if plan.problem_type == "forecasting" %}
+  <p class="meta">Forecasting is always validated chronologically (a time-ordered holdout, never a random shuffle) - see split_log above.</p>
+  {% endif %}
 
-  <h2>Business Impact</h2>
-  <p>{{ content.business_impact }}</p>
+  <!-- 9. Model Comparison Table -->
+  <h2 id="model-comparison">9. Model Comparison Table</h2>
+  {% if model_comparison %}
+  <table>
+    <tr><th>Rank</th><th>Model</th><th>Metrics</th></tr>
+    {% for name in model_comparison.ranked_model_names %}
+    {% set r = (model_comparison.results | selectattr("model_name", "equalto", name) | first) %}
+    <tr class="{{ 'best' if name == model_comparison.winner else '' }}">
+      <td>{{ loop.index }}</td>
+      <td>{{ name }}</td>
+      <td>
+        <ul class="metric-list">
+        {% for metric_name, value in r.metrics.items() %}
+          <li><code>{{ metric_name }}</code>: {{ "%.4f"|format(value) if value is number else value }}</li>
+        {% endfor %}
+        </ul>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if model_comparison.results | selectattr("status", "ne", "success") | list %}
+  <h3>Not ranked</h3>
+  <table>
+    <tr><th>Model</th><th>Status</th><th>Reason</th></tr>
+    {% for r in model_comparison.results if r.status != "success" %}
+    <tr><td>{{ r.model_name }}</td><td class="status-{{ r.status }}">{{ r.status }}</td><td>{{ r.errors }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% else %}
+  <p class="meta">A detailed model comparison table is not available for this run's scope strategy; see the Models Evaluated section above.</p>
+  {% endif %}
 
-  <h2>Caveats &amp; Limitations</h2>
-  <p>{{ content.caveats_and_limitations }}</p>
+  <!-- 10. Recommended Model -->
+  <h2 id="recommended-model">10. Recommended Model</h2>
+  <p style="font-size:1.3em"><strong>{{ recommendation.recommended_model if recommendation else decision.best_model }}</strong></p>
+  {% if recommendation and recommendation.flagged_for_review %}
+  <div class="flag-banner">
+    <strong>Flagged for review:</strong> {{ recommendation.flag_reason }}
+    <p class="meta">This does not change the recommendation above - the evaluation engine's ranking is final regardless of this flag.</p>
+  </div>
+  {% endif %}
+  {% if recommendation and recommendation.cited_metrics %}
+  <ul class="metric-list">
+    {% for metric_name, value in recommendation.cited_metrics.items() %}
+    <li><code>{{ metric_name }}</code>: {{ "%.4f"|format(value) if value is number else value }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <!-- 11. Why This Model Was Selected -->
+  <h2 id="why-selected">11. Why This Model Was Selected</h2>
+  {% if recommendation %}
+  <p>{{ recommendation.reason }}</p>
+  <p>{{ recommendation.performance_summary }}</p>
+  <h3>Comparison against alternatives</h3>
+  <p>{{ recommendation.comparison_to_alternatives }}</p>
+  {% if recommendation.alternative_models_mentioned %}
+  <p class="meta">Alternatives referenced: {{ recommendation.alternative_models_mentioned|join(', ') }}</p>
+  {% endif %}
+  {% elif model_comparison %}
+  <p>{{ model_comparison.winner_reasoning }}</p>
+  {% else %}
+  <p>{{ decision.reasoning }}</p>
+  {% endif %}
+
+  <!-- 12. Model Explanation -->
+  <h2 id="model-explanation">12. Model Explanation</h2>
+  <p class="meta">How the recommended model reaches its predictions - distinct from its performance (sections 7-9) and from what it means for the business (section 13).</p>
+  {% set winner_result = (model_comparison.results | selectattr("model_name", "equalto", model_comparison.winner) | first) if model_comparison and model_comparison.winner else none %}
+  {% set explain = winner_result.explainability if winner_result else none %}
+  {% if recommendation and recommendation.explanation_narrative %}
+  <p>{{ recommendation.explanation_narrative }}</p>
+  {% if recommendation.cited_top_features %}
+  <p class="meta">Top features referenced: {{ recommendation.cited_top_features|join(', ') }}</p>
+  {% endif %}
+  {% endif %}
+
+  {% if plan.problem_type == "forecasting" %}
+  {% set dexplain = model_comparison.dataset_explainability if model_comparison else none %}
+  {% if dexplain and dexplain.supported %}
+  <table>
+    <tr><th>Trend</th><td>{{ "Detected" if dexplain.trend_detected else "Not detected" }} - {{ dexplain.trend_notes }}{% if dexplain.trend_strength is not none %} (strength: {{ "%.2f"|format(dexplain.trend_strength) }}){% endif %}</td></tr>
+    <tr><th>Seasonality</th><td>{{ "Detected" if dexplain.seasonality_detected else "Not detected" }} - {{ dexplain.seasonality_notes }}{% if dexplain.seasonal_strength is not none %} (strength: {{ "%.2f"|format(dexplain.seasonal_strength) }}){% endif %}</td></tr>
+    <tr><th>Forecast components</th><td>{{ "Available (see chart below)" if dexplain.forecast_components_available else "Not enough historical data to decompose" }}</td></tr>
+  </table>
+  {% else %}
+  <p class="meta">Trend/seasonality explanation is not available for this run (not enough historical data).</p>
+  {% endif %}
+  {% elif explain %}
+  {% if explain.supported %}
+  <table>
+    <tr><th>Native feature importance</th><td>{{ explain.feature_importance_method or "n/a" }}{% if explain.feature_importance %} - top: {{ explain.feature_importance[0].feature }} ({{ "%.4f"|format(explain.feature_importance[0].importance) }}){% endif %}</td></tr>
+    <tr><th>Permutation importance</th><td>
+      {% if explain.permutation_importance_supported and explain.permutation_importance %}top: {{ explain.permutation_importance[0].feature }} ({{ "%.4f"|format(explain.permutation_importance[0].importance) }})
+      {% elif explain.permutation_importance_supported %}computed, no signal
+      {% else %}not applicable to this model{% endif %}
+    </td></tr>
+    <tr><th>SHAP importance</th><td>
+      {% if explain.shap_supported and explain.shap_importance %}top: {{ explain.shap_importance[0].feature }} ({{ "%.4f"|format(explain.shap_importance[0].importance) }})
+      {% elif explain.shap_supported %}computed, no signal
+      {% else %}{{ explain.shap_unavailable_reason or "not available" }}{% endif %}
+    </td></tr>
+  </table>
+  {% else %}
+  <p class="meta">{{ explain.reason_unsupported or (model_comparison.winner ~ " does not reliably support explainability techniques - this is expected for simple baselines and is not an error.") }}</p>
+  {% endif %}
+  {% else %}
+  <p class="meta">Explainability was not computed for this run's scope strategy or recommended model.</p>
+  {% endif %}
+
+  <!-- 13. Business Interpretation -->
+  <h2 id="business-interpretation">13. Business Interpretation</h2>
+  <p>{{ recommendation.business_interpretation if recommendation else "" }}</p>
+
+  <!-- 14. Model Limitations -->
+  <h2 id="limitations">14. Model Limitations</h2>
+  <p>{{ recommendation.limitations if recommendation else "" }}</p>
+  {% if recommendation and recommendation.confidence_statement %}
+  <p><strong>Confidence:</strong> {{ recommendation.confidence_statement }}</p>
+  {% endif %}
+
+  <!-- 15. Charts & Visualizations -->
+  <h2 id="charts">15. Charts &amp; Visualizations</h2>
+  {% if charts %}
+  {% if charts.model_comparison %}
+  <div class="chart-block">
+    <img src="{{ charts.model_comparison }}" alt="Model comparison chart">
+    <p class="chart-caption">Model comparison on the primary metric ({{ model_comparison.primary_metric if model_comparison else "" }}). The winning model is highlighted.</p>
+  </div>
+  {% endif %}
+  {% if charts.historical_vs_predicted %}
+  <div class="chart-block">
+    <img src="{{ charts.historical_vs_predicted }}" alt="Historical vs predicted chart">
+    <p class="chart-caption">Historical vs predicted values over the holdout period{% if plan.forecast_horizon %} (forecast horizon: {{ plan.forecast_horizon }}){% endif %}.</p>
+  </div>
+  {% endif %}
+  {% if charts.confusion_matrix %}
+  <div class="chart-block">
+    <img src="{{ charts.confusion_matrix }}" alt="Confusion matrix">
+    <p class="chart-caption">Confusion matrix for the recommended model on the holdout set.</p>
+  </div>
+  {% endif %}
+  {% if charts.prediction_vs_actual %}
+  <div class="chart-block">
+    <img src="{{ charts.prediction_vs_actual }}" alt="Prediction vs actual chart">
+    <p class="chart-caption">Predicted vs actual values for the recommended model on the holdout set.</p>
+  </div>
+  {% endif %}
+  {% if charts.residuals %}
+  <div class="chart-block">
+    <img src="{{ charts.residuals }}" alt="Residual analysis chart">
+    <p class="chart-caption">Residuals (predicted minus actual) across the holdout set.</p>
+  </div>
+  {% endif %}
+  {% if charts.feature_importance %}
+  <div class="chart-block">
+    <img src="{{ charts.feature_importance }}" alt="Feature importance chart">
+    <p class="chart-caption">Top features by native importance (impurity/coefficient) for the recommended model.</p>
+  </div>
+  {% endif %}
+  {% if charts.permutation_importance %}
+  <div class="chart-block">
+    <img src="{{ charts.permutation_importance }}" alt="Permutation importance chart">
+    <p class="chart-caption">Permutation importance: performance drop when each feature is shuffled, for the recommended model.</p>
+  </div>
+  {% endif %}
+  {% if charts.shap_importance %}
+  <div class="chart-block">
+    <img src="{{ charts.shap_importance }}" alt="SHAP importance chart">
+    <p class="chart-caption">Mean |SHAP value| per feature for the recommended model.</p>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="meta">No charts are available for this run's scope strategy.</p>
+  {% endif %}
 </body>
 </html>

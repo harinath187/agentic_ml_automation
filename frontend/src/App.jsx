@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getRun, reportUrl, startRun, uploadDataset } from "./api";
+import { cancelRun, getRun, reportUrl, startRun, uploadDataset } from "./api";
 import ModelBarChart from "./components/ModelBarChart";
 
 const POLL_INTERVAL_MS = 2000;
@@ -75,6 +75,16 @@ export default function App() {
     await runWithDescription(updatedDescription);
   }
 
+  async function handleCancelRun() {
+    if (!runId) return;
+    try {
+      const record = await cancelRun(runId);
+      setRunRecord(record);
+    } catch (err) {
+      setRunError(err.message);
+    }
+  }
+
   useEffect(() => {
     if (!runId) return undefined;
 
@@ -82,7 +92,7 @@ export default function App() {
       try {
         const record = await getRun(runId);
         setRunRecord(record);
-        if (record.status === "running") {
+        if (record.status === "queued" || record.status === "running") {
           pollRef.current = setTimeout(poll, POLL_INTERVAL_MS);
         }
       } catch (err) {
@@ -94,8 +104,8 @@ export default function App() {
     return () => clearTimeout(pollRef.current);
   }, [runId]);
 
-  const isRunning = runRecord?.status === "running";
-  const canRun = dataset && businessDescription.trim().length > 0 && !isRunning;
+  const isActive = runRecord?.status === "queued" || runRecord?.status === "running";
+  const canRun = dataset && businessDescription.trim().length > 0 && !isActive;
 
   return (
     <div className="page">
@@ -189,15 +199,37 @@ export default function App() {
           </div>
 
           <button onClick={handleRunPipeline} disabled={!canRun}>
-            {isRunning ? "Running..." : "Run Pipeline"}
+            {isActive ? (runRecord?.status === "queued" ? "Queued..." : "Running...") : "Run Pipeline"}
           </button>
           {runError && <p className="error">{runError}</p>}
         </section>
       )}
 
+      {runRecord?.status === "queued" && (
+        <section className="card">
+          <p className="muted">
+            Run queued - waiting for a free worker...
+            {typeof runRecord.queue_depth === "number" && ` (${runRecord.queue_depth} run(s) queued/in progress)`}
+          </p>
+          <button onClick={handleCancelRun}>Cancel</button>
+        </section>
+      )}
+
       {runRecord?.status === "running" && (
         <section className="card">
-          <p className="muted">Pipeline running - planning, cleaning, training, and evaluating models...</p>
+          <p className="muted">
+            Pipeline running - planning, cleaning, training, and evaluating models...
+            {runRecord.current_step && ` Current step: ${runRecord.current_step}.`}
+            {runRecord.started_at && ` Started at ${runRecord.started_at}.`}
+          </p>
+          <button onClick={handleCancelRun}>Cancel</button>
+        </section>
+      )}
+
+      {runRecord?.status === "cancelled" && (
+        <section className="card warning">
+          <h2>Run cancelled</h2>
+          <p className="muted">This run was cancelled before it finished.</p>
         </section>
       )}
 
@@ -218,14 +250,14 @@ export default function App() {
         </section>
       )}
 
-      {runRecord?.status === "error" && (
+      {runRecord?.status === "failed" && (
         <section className="card error-card">
           <h2>Pipeline failed</h2>
           <p>{runRecord.error}</p>
         </section>
       )}
 
-      {runRecord?.status === "complete" && (
+      {runRecord?.status === "completed" && (
         <section className="card">
           <h2>3. Results</h2>
 

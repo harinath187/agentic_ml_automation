@@ -10,12 +10,13 @@ import pytest
 pytest.importorskip("langgraph")
 pytest.importorskip("autogluon.tabular")
 
-from agents.schemas import EvaluatorDecision, PipelinePlan, ProblemType, ReportContent
+from agents.schemas import EvaluatorDecision, ExperimentPlan, ProblemType, RecommendationOutput, ReportContent
 
 
-def _patch_agents(monkeypatch, plan: PipelinePlan):
+def _patch_agents(monkeypatch, plan: ExperimentPlan):
     import agents.planner as planner_module
     import agents.evaluator as evaluator_module
+    import agents.recommender as recommender_module
     import agents.reporter as reporter_module
 
     monkeypatch.setattr(planner_module, "call_llm_json", lambda *a, **k: plan)
@@ -27,16 +28,22 @@ def _patch_agents(monkeypatch, plan: PipelinePlan):
 
     monkeypatch.setattr(evaluator_module, "evaluate_results", fake_evaluate)
     monkeypatch.setattr(
+        recommender_module,
+        "call_llm_json",
+        lambda *a, **k: RecommendationOutput(
+            recommended_model="irrelevant - overridden by validate_recommendation",
+            reason="test",
+            performance_summary="test",
+            comparison_to_alternatives="test",
+            business_interpretation="test",
+            limitations="test",
+            confidence_statement="test",
+        ),
+    )
+    monkeypatch.setattr(
         reporter_module,
         "call_llm_json",
-        lambda *a, **k: ReportContent(
-            problem_summary="test",
-            approach_taken="test",
-            models_compared="test",
-            final_recommendation="test",
-            business_impact="test",
-            caveats_and_limitations="test",
-        ),
+        lambda *a, **k: ReportContent(executive_summary="test", approach_narrative="test"),
     )
 
 
@@ -44,11 +51,11 @@ def test_classification_pipeline_end_to_end(classification_df, monkeypatch, tmp_
     csv_path = tmp_path / "classification.csv"
     classification_df.to_csv(csv_path, index=False)
 
-    plan = PipelinePlan(
+    plan = ExperimentPlan(
         problem_type=ProblemType.CLASSIFICATION,
         target_column="churn",
         pipeline_steps=["clean", "engineer_features", "split", "train"],
-        candidate_models=["LightGBM"],
+        candidate_model_families=["LightGBM"],
     )
     _patch_agents(monkeypatch, plan)
 
@@ -65,17 +72,18 @@ def test_classification_pipeline_end_to_end(classification_df, monkeypatch, tmp_
     assert result["decision"].best_model is not None
     assert result["metrics"]["models"]
     assert result["report_path"]
+    assert result["recommendation"].recommended_model == result["decision"].best_model
 
 
 def test_regression_pipeline_end_to_end(regression_df, monkeypatch, tmp_path):
     csv_path = tmp_path / "regression.csv"
     regression_df.to_csv(csv_path, index=False)
 
-    plan = PipelinePlan(
+    plan = ExperimentPlan(
         problem_type=ProblemType.REGRESSION,
         target_column="price",
         pipeline_steps=["clean", "engineer_features", "split", "train"],
-        candidate_models=["LightGBM"],
+        candidate_model_families=["LightGBM"],
     )
     _patch_agents(monkeypatch, plan)
 
@@ -96,12 +104,12 @@ def test_forecasting_pipeline_end_to_end(forecasting_df, monkeypatch, tmp_path):
     csv_path = tmp_path / "forecasting.csv"
     forecasting_df.to_csv(csv_path, index=False)
 
-    plan = PipelinePlan(
+    plan = ExperimentPlan(
         problem_type=ProblemType.FORECASTING,
         target_column="sales",
         time_column="date",
         pipeline_steps=["clean", "engineer_features", "split", "train"],
-        candidate_models=["LightGBM"],
+        candidate_model_families=["LightGBM"],
     )
     _patch_agents(monkeypatch, plan)
 

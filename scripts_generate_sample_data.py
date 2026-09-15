@@ -65,6 +65,8 @@ def make_house_price_regression():
 
 
 def make_sales_forecasting():
+    """Phase 10's "seasonal time series" representative dataset - trend plus
+    a clear weekly seasonal pattern."""
     rng = np.random.default_rng(11)
     n = 200
     dates = pd.date_range("2023-01-01", periods=n, freq="D")
@@ -75,8 +77,43 @@ def make_sales_forecasting():
     return pd.DataFrame({"date": dates, "sales": sales.round(2)})
 
 
+def make_simple_timeseries():
+    """Phase 10's "simple time series" representative dataset - a single
+    entity, a clear linear trend, no seasonality, low noise. See
+    tests/conftest.py's `simple_timeseries_df` fixture (same shape) for why
+    this is also useful for validating that a trend-aware classical model
+    can beat AutoGluon's tabular-regression approach on this kind of data."""
+    rng = np.random.default_rng(101)
+    n = 150
+    dates = pd.date_range("2023-01-01", periods=n, freq="D")
+    trend = np.linspace(100, 400, n)
+    noise = rng.normal(0, 3, n)
+    return pd.DataFrame({"date": dates, "sales": (trend + noise).round(2)})
+
+
+def make_multi_entity_timeseries():
+    """Phase 10's "multi-entity time series" representative dataset - sales
+    by store, each with its own baseline/trend/weekly seasonality, for the
+    Planner's per_entity/pooled/hierarchical scope-strategy handling."""
+    rng = np.random.default_rng(21)
+    n_per_store = 90
+    stores = ["store_1", "store_2", "store_3"]
+    frames = []
+    for i, store in enumerate(stores):
+        dates = pd.date_range("2023-01-01", periods=n_per_store, freq="D")
+        base = 50 + i * 100
+        trend = np.linspace(0, 20, n_per_store)
+        weekly = 10 * np.sin(2 * np.pi * dates.dayofweek / 7)
+        noise = rng.normal(0, 3, n_per_store)
+        sales = base + trend + weekly + noise
+        frames.append(pd.DataFrame({"store_id": store, "date": dates, "sales": sales.round(2)}))
+    return pd.concat(frames, ignore_index=True)
+
+
 if __name__ == "__main__":
     make_churn_classification().to_csv(f"{OUT_DIR}/churn_classification.csv", index=False)
     make_house_price_regression().to_csv(f"{OUT_DIR}/house_price_regression.csv", index=False)
     make_sales_forecasting().to_csv(f"{OUT_DIR}/sales_forecasting.csv", index=False)
+    make_simple_timeseries().to_csv(f"{OUT_DIR}/simple_timeseries.csv", index=False)
+    make_multi_entity_timeseries().to_csv(f"{OUT_DIR}/multi_entity_timeseries.csv", index=False)
     print("Sample datasets written to sample_data/")
