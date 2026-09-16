@@ -189,6 +189,16 @@
   {% else %}
   <p class="meta">Preprocessing was handled per-entity for this run's scope strategy and is not aggregated here.</p>
   {% endif %}
+  {% if feature_selection_log %}
+  <h3>Feature selection</h3>
+  <table>
+    <tr><th>Kept columns</th><td>{{ feature_selection_log.kept|join(', ') if feature_selection_log.kept else "none" }}</td></tr>
+    <tr><th>Dropped columns</th><td>
+      {% for item in feature_selection_log.dropped %}{{ item.column }} ({{ item.reason }}){{ ", " if not loop.last }}{% else %}none{% endfor %}
+    </td></tr>
+  </table>
+  <p class="meta">Covers explicit column pruning (identifier-like, near-duplicate/leakage, and constant columns, plus the plan's requested feature list) before training - it does not include the separate numeric-only filtering some classical models additionally apply at train time.</p>
+  {% endif %}
   <p>{{ content.approach_narrative }}</p>
 
   <!-- 7. Models Evaluated -->

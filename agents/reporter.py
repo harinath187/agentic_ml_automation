@@ -75,6 +75,7 @@ def generate_report(
     recommendation: Optional[RecommendationOutput] = None,
     cleaning_log: Optional[dict] = None,
     feature_log: Optional[dict] = None,
+    feature_selection_log: Optional[dict] = None,
     split_log: Optional[dict] = None,
     charts: Optional[dict] = None,
     output_path: Optional[str] = None,
@@ -114,6 +115,10 @@ def generate_report(
         prompt_parts.append(f"Cleaning log (JSON):\n{json.dumps(cleaning_log, indent=2)}")
     if feature_log is not None:
         prompt_parts.append(f"Feature engineering log (JSON):\n{json.dumps(feature_log, indent=2)}")
+    if feature_selection_log is not None:
+        # Absent for hierarchical scope (no selection applies there) - a
+        # missing/None value here is a valid, expected state, not an error.
+        prompt_parts.append(f"Feature selection log (JSON):\n{json.dumps(feature_selection_log, indent=2)}")
     if split_log is not None:
         prompt_parts.append(f"Split log (JSON):\n{json.dumps(split_log, indent=2)}")
 
@@ -136,6 +141,7 @@ def generate_report(
         recommendation=recommendation,
         cleaning_log=cleaning_log,
         feature_log=feature_log,
+        feature_selection_log=feature_selection_log,
         split_log=split_log,
         charts=charts or {},
     )

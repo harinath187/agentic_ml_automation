@@ -14,12 +14,6 @@ specifically verifies the properties Phase 10 calls out:
     (test_failed_candidate_model_does_not_crash_the_pipeline)
   - forecasting uses chronological (never random) validation
     (asserted inside every forecasting full-pipeline test, via split_log)
-  - AutoGluon is one candidate among several, never the only one trained by
-    default (test_autogluon_is_one_candidate_among_several)
-  - a traditional forecasting model can beat AutoGluon, and vice versa, with
-    REAL (not monkeypatched) AutoGluon training
-    (test_traditional_model_beats_real_autogluon_on_trending_data,
-    test_real_autogluon_beats_traditional_models_on_calendar_effect_data)
   - reports contain consistent metrics for the WHOLE comparison table, not
     just the winner (test_report_contains_consistent_metrics_for_every_candidate)
   - pipeline state remains valid as it's threaded between LangGraph nodes
@@ -37,8 +31,6 @@ the same five representative datasets are available for manual/demo use.
 """
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import pytest
 
 pytest.importorskip("langgraph")
@@ -55,11 +47,6 @@ from agents.schemas import (
     ValidationStrategyType,
 )
 from tests.test_pipeline_integration import _patch_agents
-from tools.model_registry import resolve_candidates
-from tools.model_runner import run_candidates
-from tools.cleaning import clean_data
-from tools.feature_engineering import engineer_features
-from tools.splitting import split_data
 
 
 # --- 1-5: full pipeline (Upload -> Report) across the five representative --
@@ -171,7 +158,7 @@ def test_seasonal_timeseries_full_pipeline_upload_to_report(forecasting_df, monk
         problem_type=ProblemType.FORECASTING,
         target_column="sales",
         time_column="date",
-        candidate_model_families=["seasonal_naive", "sarima", "autogluon_timeseries"],
+        candidate_model_families=["seasonal_naive", "sarima"],
     )
     _patch_agents(monkeypatch, plan)
 
@@ -184,7 +171,7 @@ def test_seasonal_timeseries_full_pipeline_upload_to_report(forecasting_df, monk
 
     _assert_full_node_chain_present(result)
     assert result["split_log"]["method"] == "chronological_no_shuffle"
-    # AutoGluon must be present alongside classical candidates, not the only thing trained.
+    # More than one classical candidate must be present, not just one.
     assert any(name != "seasonal_naive" for name in result["metrics"]["models"])
 
 
@@ -365,104 +352,6 @@ def test_failed_candidate_model_does_not_crash_the_pipeline(regression_df, monke
     assert candidate_results["random_forest"]["status"] == "success"
     # the ranking/decision only ever considers the survivors
     assert result["decision"].best_model in ("baseline", "random_forest")
-
-
-# --- AutoGluon is one candidate among several, never the only one -----------
-
-
-def test_autogluon_is_one_candidate_among_several(classification_df, monkeypatch, tmp_path):
-    csv_path = tmp_path / "classification.csv"
-    classification_df.to_csv(csv_path, index=False)
-    # An empty candidate_model_families list forces tools/model_registry.py's
-    # default_candidates() fallback - "baseline" + "autogluon_tabular" - so
-    # this also doubles as a regression check that the fallback never trains
-    # AutoGluon alone.
-    plan = ExperimentPlan(problem_type=ProblemType.CLASSIFICATION, target_column="churn", candidate_model_families=[])
-    _patch_agents(monkeypatch, plan)
-
-    from orchestration.graph import run_pipeline
-
-    result = run_pipeline(
-        file_path=str(csv_path), business_description="Predict churn",
-        sensitive_columns=["customer_name"], max_retries=0, time_limit_s=15,
-    )
-
-    trained_families = set(result["metrics"]["models"].keys())
-    assert len(trained_families) >= 2
-    assert any("autogluon" not in name.lower() and name != "WeightedEnsemble_L2" for name in trained_families)
-
-
-# --- traditional vs. real (non-mocked) AutoGluon training --------------------
-#
-# Unlike tests/test_ranking_end_to_end.py's ETS-vs-AutoGluon tests (which
-# monkeypatch AutoGluon's train_fn to a controlled stub for speed), these two
-# tests let AutoGluon actually train, through the exact same
-# clean -> engineer_features -> split -> run_candidates path node_train uses,
-# to prove the "traditional can beat AutoGluon"/"AutoGluon can beat
-# traditional" requirement is a real behavior, not just a fact about the
-# ranking arithmetic.
-
-
-def _train_forecasting_candidates(df: pd.DataFrame, candidate_names: list[str], automl_time_limit: int = 20):
-    cleaned, _ = clean_data(df, target_column="sales", time_column="date")
-    engineered, _ = engineer_features(cleaned, problem_type="forecasting", target_column="sales", time_column="date")
-    train_df, test_df, split_log = split_data(engineered, problem_type="forecasting", time_column="date")
-    assert split_log["method"] == "chronological_no_shuffle"  # forecasting must never randomly shuffle
-
-    candidates, _ = resolve_candidates(ProblemType.FORECASTING, candidate_names)
-    metrics, _ = run_candidates(
-        candidates, train_df, test_df, "sales", "date", ProblemType.FORECASTING, automl_time_limit=automl_time_limit
-    )
-    return metrics["model_comparison"]
-
-
-def test_traditional_model_beats_real_autogluon_on_trending_data(simple_timeseries_df):
-    """A monotonic linear trend with a holdout period beyond the training
-    range: tree-based regressors (AutoGluon's default forecasting path,
-    which reduces forecasting to regression over lag/rolling features) can't
-    extrapolate past the max value they were trained on, while ETS/ARIMA
-    explicitly model and extrapolate a trend. AutoGluon trains for real here
-    - not monkeypatched."""
-    comparison = _train_forecasting_candidates(
-        simple_timeseries_df, ["naive", "seasonal_naive", "ets", "arima", "autogluon_timeseries"]
-    )
-
-    assert comparison["winner"] in ("ets", "arima")
-    winner_rmse = next(r["metrics"]["rmse"] for r in comparison["results"] if r["model_name"] == comparison["winner"])
-    autogluon_results = [
-        r for r in comparison["results"]
-        if r["status"] == "success" and r["model_name"] not in ("naive", "seasonal_naive", "ets", "arima", "sarima")
-    ]
-    assert autogluon_results  # AutoGluon actually produced a leaderboard
-    for r in autogluon_results:
-        assert winner_rmse < r["metrics"]["rmse"]  # every real AutoGluon model does worse than the winner
-
-
-def test_real_autogluon_beats_traditional_models_on_calendar_effect_data():
-    """A day-of-month calendar effect (a fixed spike on the 1st and 15th)
-    with no weekly seasonality: classical models here (naive, seasonal_naive
-    with a 7-day season, ETS, ARIMA, SARIMA with a 7-day seasonal order) have
-    no way to see day-of-month, while AutoGluon's tabular regression can use
-    the engineered `date_day` feature directly. AutoGluon trains for real
-    here - not monkeypatched.
-    """
-    rng = np.random.default_rng(55)
-    n = 180
-    dates = pd.date_range("2023-01-01", periods=n, freq="D")
-    base = 100 + rng.normal(0, 1, n)
-    spike = np.where(dates.day.isin([1, 15]), 80.0, 0.0)
-    df = pd.DataFrame({"date": dates, "sales": (base + spike).round(2)})
-
-    comparison = _train_forecasting_candidates(
-        df, ["naive", "seasonal_naive", "ets", "arima", "sarima", "autogluon_timeseries"]
-    )
-
-    classical_names = {"naive", "seasonal_naive", "ets", "arima", "sarima"}
-    assert comparison["winner"] not in classical_names  # an AutoGluon leaderboard model won
-    winner_rmse = next(r["metrics"]["rmse"] for r in comparison["results"] if r["model_name"] == comparison["winner"])
-    for r in comparison["results"]:
-        if r["status"] == "success" and r["model_name"] in classical_names:
-            assert winner_rmse < r["metrics"]["rmse"]
 
 
 # --- report consistency across the WHOLE comparison table, not just the -----

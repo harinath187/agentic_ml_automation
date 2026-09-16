@@ -261,21 +261,9 @@ def test_node_train_uses_only_plan_requested_candidates():
 
 
 def test_node_train_falls_back_to_default_when_nothing_matches(monkeypatch):
-    from tools import model_registry
-
-    # Swap AutoGluon's real training call for a fast fake - the default
-    # fallback includes it, and this test only needs to prove the fallback
-    # kicks in, not re-verify real AutoGluon training (test_pipeline_integration
-    # already does that end to end).
-    autogluon_def = next(
-        d for d in model_registry.get_registry_for_problem_type(ProblemType.CLASSIFICATION) if d.name == "autogluon_tabular"
-    )
-    monkeypatch.setattr(
-        autogluon_def,
-        "train_fn",
-        lambda *a, **k: {"eval_metric": "accuracy", "models": {"FakeAutoGluonModel": {"score_test": 0.5, "score_val": 0.5, "fit_time_s": 0.01}}},
-    )
-
+    # Classification's default fallback is just "baseline" (no AutoGluon), so
+    # this test only needs to prove the fallback kicks in - baseline trains
+    # fast for real, no faking needed.
     train_df, test_df = _classification_train_test_dfs()
     plan = _plan(
         problem_type=ProblemType.CLASSIFICATION,

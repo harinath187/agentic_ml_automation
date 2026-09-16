@@ -82,10 +82,18 @@ obviously-fixable issues (hallucinated columns, missing defaults) and only falls
 
 | scope_strategy | route |
 |---|---|
-| `pooled` / none | `eda -> clean -> feature_engineer -> split -> train` |
-| `single_entity` | `filter_entity` (subset to one entity, drop entity column) -> rejoins at `eda` |
-| `per_entity` | `per_entity_pipeline` - loops clean/engineer/split/train per entity, in-process, capped at 25 entities, skips entities with <10 rows |
-| `hierarchical` | `hierarchical_train` - AutoGluon `TimeSeriesPredictor` across all entities via `item_id` |
+| `pooled` / none | `feature_selection -> eda -> clean -> feature_engineer -> split -> train` |
+| `single_entity` | `filter_entity` (subset to one entity, drop entity column) -> `feature_selection` -> rejoins at `eda` |
+| `per_entity` | `per_entity_pipeline` - applies feature selection once (globally, not per entity), then loops clean/engineer/split/train per entity, in-process, capped at 25 entities, skips entities with <10 rows |
+| `hierarchical` | `hierarchical_train` - AutoGluon `TimeSeriesPredictor` across all entities via `item_id`; no feature selection (already univariate: target/time/entity only) |
+
+`feature_selection` (`tools/feature_selection.py`) is deterministic, pandas-only: subsets the
+dataframe to the validated plan's `feature_columns` plus target/time/entity columns, so
+`DataQualityReport`'s id-like/leakage/constant/near-constant exclusion lists and the plan's
+feature list actually determine what reaches training, rather than being advisory-only context.
+Runs before cleaning/feature-engineering so it never has to reconcile its exclusions against
+one-hot/lag/rolling columns created later - engineered-feature quality is a documented, separate
+concern, not covered by this step.
 
 **Evaluation, retry, finish:**
 ```

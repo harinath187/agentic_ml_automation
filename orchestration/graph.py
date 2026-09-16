@@ -2,9 +2,22 @@
 
 Standard flow (scope_strategy is pooled or null):
     Ingest -> Profile Data -> Quality Analysis -> Detect Problem ->
-    Planner Agent -> Validate Plan -> EDA -> Clean -> Feature Engineer ->
-    Split -> Train -> Evaluate -> (retry loop back to Clean, or) ->
-    Recommend -> Report -> END.
+    Planner Agent -> Validate Plan -> Feature Selection -> EDA -> Clean ->
+    Feature Engineer -> Split -> Train -> Evaluate ->
+    (retry loop back to Clean, or) -> Recommend -> Report -> END.
+
+Feature Selection (tools/feature_selection.py) is deterministic, pandas-only:
+subsets the dataframe to the validated ExperimentPlan's feature_columns plus
+target/time/entity columns, so the DataQualityReport exclusion lists
+(id-like, near-duplicate/leakage, constant/near-constant columns) and the
+plan's own feature list actually determine what reaches training, not just
+advisory context. Runs before Clean/Feature Engineer (which one-hot encode
+and create lag/rolling columns) so it never has to reconcile its exclusion
+lists against expanded/engineered column names - see that module's docstring
+for the resulting scope boundary (engineered-feature quality isn't checked).
+Skipped for hierarchical scope (already univariate by design); applied once
+for per_entity scope (node_per_entity_pipeline), globally across all entities
+rather than per entity.
 
 Recommend (Phase 5) is the Recommendation Agent (agents/recommender.py): it
 explains the deterministic evaluation engine's already-decided winner
@@ -67,6 +80,7 @@ from tools import (
     eda,
     experiment_tracking,
     feature_engineering,
+    feature_selection,
     model_registry,
     model_runner,
     plan_validation,
@@ -121,6 +135,7 @@ class PipelineState(TypedDict, total=False):
     plan: ExperimentPlan
     needs_clarification: bool
 
+    feature_selection_log: dict  # absent for hierarchical scope, which trains univariate (no selection applies)
     eda_summary: dict
     cleaned_df: Any
     cleaning_log: dict
@@ -231,6 +246,22 @@ def node_filter_entity(state: PipelineState) -> PipelineState:
     return {"df": filtered.drop(columns=[plan.entity_column])}
 
 
+def node_feature_selection(state: PipelineState) -> PipelineState:
+    """Deterministic, pandas-only: subsets state["df"] to plan.feature_columns
+    plus target/time/entity columns before cleaning/feature-engineering ever
+    runs, so the ExperimentPlan/DataQualityReport exclusion lists actually
+    determine what gets trained on instead of just being advisory context.
+    Not run for hierarchical scope (see tools/feature_selection.py docstring
+    and route_after_validate_plan) - state["feature_selection_log"] is
+    correspondingly absent for that scope, which downstream consumers
+    (agents/reporter.py, tools/experiment_tracking.py) must treat as valid.
+    """
+    selected_df, log = feature_selection.apply_feature_selection(
+        state["df"], state["plan"], state["data_quality_report"]
+    )
+    return {"df": selected_df, "feature_selection_log": log}
+
+
 def node_eda(state: PipelineState) -> PipelineState:
     summary = eda.run_eda(state["df"], state.get("sensitive_columns"))
     return {"eda_summary": summary}
@@ -296,10 +327,24 @@ def node_train(state: PipelineState) -> PipelineState:
     if not candidates:
         candidates = model_registry.default_candidates(problem_type)
 
+    train_df, test_df = state["train_df"], state["test_df"]
+    # entity_column survives cleaning/feature-engineering/split for pooled
+    # scope (needed for groupby-scoped lag/rolling and per-entity chronological
+    # splits - see node_cleaning/node_feature_engineering/node_split), but it's
+    # not a real feature. Drop it here, once, before it reaches any candidate -
+    # classical models, AutoGluon, and explainability (tools/model_runner.py's
+    # _compute_explainability) all reuse these same train_df/test_df objects,
+    # so this single drop covers every downstream consumer without threading a
+    # new parameter through tools/model_registry.py, tools/automl_training.py,
+    # and tools/explainability.py's function signatures.
+    if plan.scope_strategy == ScopeStrategy.POOLED and plan.entity_column:
+        train_df = train_df.drop(columns=[plan.entity_column], errors="ignore")
+        test_df = test_df.drop(columns=[plan.entity_column], errors="ignore")
+
     metrics, chart_data = model_runner.run_candidates(
         candidates,
-        state["train_df"],
-        state["test_df"],
+        train_df,
+        test_df,
         target_column=plan.target_column,
         time_column=plan.time_column,
         problem_type=problem_type,
@@ -317,7 +362,15 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
     plus an averaged 'models' view the Evaluator/Reporter can reason about.
     """
     plan = state["plan"]
-    df = state["df"]
+    # Selection uses one GLOBAL exclusion set (quality_report was computed once,
+    # before any entity split exists) applied identically to every entity - a
+    # column constant only within one entity but not others is kept/dropped the
+    # same way everywhere. entity_column itself is always kept here (it's
+    # structural - each entity's subset is carved out from it below) even
+    # though it's never in plan.feature_columns.
+    df, feature_selection_log = feature_selection.apply_feature_selection(
+        state["df"], plan, state["data_quality_report"]
+    )
     problem_type = plan.problem_type.value if plan.problem_type else "regression"
     aggressive = state.get("retry_count", 0) > 0
     total_time_budget = state.get("time_limit_s", 60)
@@ -376,7 +429,7 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
         "entities_skipped": skipped,
         "entities_truncated": truncated,
     }
-    return {"metrics": metrics}
+    return {"metrics": metrics, "feature_selection_log": feature_selection_log}
 
 
 def _aggregate_per_entity_models(per_entity_metrics: dict[str, dict]) -> dict:
@@ -481,6 +534,7 @@ def node_report(state: PipelineState) -> PipelineState:
         recommendation=state.get("recommendation"),
         cleaning_log=state.get("cleaning_log"),
         feature_log=state.get("feature_log"),
+        feature_selection_log=state.get("feature_selection_log"),
         split_log=state.get("split_log"),
         charts=charts,
         output_path=output_path,
@@ -539,6 +593,7 @@ def build_graph():
     graph.add_node("planner_agent", _cancellable(node_planner_agent))
     graph.add_node("validate_plan", _cancellable(node_validate_plan))
     graph.add_node("filter_entity", _cancellable(node_filter_entity))
+    graph.add_node("feature_selection", _cancellable(node_feature_selection))
     graph.add_node("eda", _cancellable(node_eda))
     graph.add_node("clean", _cancellable(node_cleaning))
     graph.add_node("feature_engineer", _cancellable(node_feature_engineering))
@@ -563,11 +618,12 @@ def build_graph():
             "filter_entity": "filter_entity",
             "per_entity": "per_entity_pipeline",
             "hierarchical": "hierarchical_train",
-            "eda": "eda",
+            "eda": "feature_selection",
             "end_clarification": END,
         },
     )
-    graph.add_edge("filter_entity", "eda")
+    graph.add_edge("filter_entity", "feature_selection")
+    graph.add_edge("feature_selection", "eda")
     graph.add_edge("eda", "clean")
     graph.add_edge("clean", "feature_engineer")
     graph.add_edge("feature_engineer", "split")

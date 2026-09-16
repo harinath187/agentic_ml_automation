@@ -11,9 +11,9 @@ from tools.model_registry import (
     resolve_candidates,
 )
 
-EXPECTED_CLASSIFICATION = {"baseline", "logistic_regression", "random_forest", "xgboost", "lightgbm", "autogluon_tabular"}
-EXPECTED_REGRESSION = {"baseline", "linear_regression", "random_forest", "xgboost", "lightgbm", "autogluon_tabular"}
-EXPECTED_FORECASTING = {"naive", "seasonal_naive", "ets", "arima", "sarima", "autogluon_timeseries"}
+EXPECTED_CLASSIFICATION = {"baseline", "logistic_regression", "random_forest", "xgboost", "lightgbm"}
+EXPECTED_REGRESSION = {"baseline", "linear_regression", "random_forest", "xgboost", "lightgbm"}
+EXPECTED_FORECASTING = {"naive", "seasonal_naive", "ets", "arima", "sarima"}
 
 
 # --- registration ------------------------------------------------------------
@@ -46,14 +46,12 @@ def test_every_registry_entry_has_a_complete_definition():
         assert isinstance(definition.default_params, dict)
 
 
-def test_autogluon_entries_declare_automl_family_and_dependency():
-    # autogluon_tabular is registered once each for classification and
-    # regression, plus autogluon_timeseries for forecasting - 3 entries.
+def test_registry_has_no_autogluon_entries():
+    # AutoGluon is used only for the "hierarchical" forecasting scope
+    # strategy, which trains via tools/automl_training.train_hierarchical_timeseries
+    # directly from orchestration/graph.py, bypassing this registry entirely.
     autogluon_entries = [d for d in REGISTRY if d.name.startswith("autogluon")]
-    assert len(autogluon_entries) == 3
-    for entry in autogluon_entries:
-        assert entry.model_family == "automl"
-        assert "autogluon.tabular" in entry.required_dependencies
+    assert autogluon_entries == []
 
 
 def test_forecasting_models_only_declare_time_series_split():
@@ -72,9 +70,9 @@ def test_resolve_candidates_matches_exact_names():
 
 def test_resolve_candidates_tolerates_llm_style_naming():
     matched, unmatched = resolve_candidates(
-        ProblemType.CLASSIFICATION, ["LightGBM", "Random Forest", "XGBoost", "Logistic Regression", "AutoGluon Tabular"]
+        ProblemType.CLASSIFICATION, ["LightGBM", "Random Forest", "XGBoost", "Logistic Regression"]
     )
-    assert {d.name for d in matched} == {"lightgbm", "random_forest", "xgboost", "logistic_regression", "autogluon_tabular"}
+    assert {d.name for d in matched} == {"lightgbm", "random_forest", "xgboost", "logistic_regression"}
     assert unmatched == []
 
 
@@ -96,10 +94,10 @@ def test_resolve_candidates_deduplicates_repeated_requests():
 
 
 def test_resolve_candidates_scopes_to_problem_type():
-    # "autogluon_tabular" exists for classification/regression, not forecasting.
-    matched, unmatched = resolve_candidates(ProblemType.FORECASTING, ["autogluon_tabular"])
+    # "linear_regression" exists for regression, not forecasting.
+    matched, unmatched = resolve_candidates(ProblemType.FORECASTING, ["linear_regression"])
     assert matched == []
-    assert unmatched == ["autogluon_tabular"]
+    assert unmatched == ["linear_regression"]
 
 
 def test_resolve_candidates_empty_request_matches_nothing():

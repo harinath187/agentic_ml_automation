@@ -170,6 +170,11 @@ class ExperimentRecord(BaseModel):
     problem_definition: Optional[dict] = None
     experiment_plan: Optional[dict] = None
     validation_strategy: Optional[dict] = None
+    feature_selection: Optional[dict] = Field(
+        default=None,
+        description="tools/feature_selection.py's kept/dropped column log. None for hierarchical "
+        "scope (no selection applies there) - a valid, expected state, not a missing value.",
+    )
 
     # candidate models / model parameters
     candidate_models: list[CandidateModelRecord] = Field(default_factory=list)
@@ -274,6 +279,7 @@ def build_record(
         validation_strategy=(
             plan.validation_strategy.model_dump(mode="json") if plan and plan.validation_strategy else None
         ),
+        feature_selection=state.get("feature_selection_log"),
         candidate_models=candidate_models,
         metrics_summary={k: v for k, v in metrics.items() if k != "candidate_results"},
         selected_model=decision.best_model if decision else None,

@@ -23,9 +23,9 @@ from agents.schemas import (
 DEFAULT_CANDIDATE_MODEL_FAMILIES = {
     # Canonical tools/model_registry.py names, so these resolve directly
     # without relying on resolve_candidates()'s alias/fuzzy matching.
-    ProblemType.CLASSIFICATION: ["baseline", "logistic_regression", "random_forest", "lightgbm", "autogluon_tabular"],
-    ProblemType.REGRESSION: ["baseline", "linear_regression", "random_forest", "lightgbm", "autogluon_tabular"],
-    ProblemType.FORECASTING: ["naive", "seasonal_naive", "autogluon_timeseries"],
+    ProblemType.CLASSIFICATION: ["baseline", "logistic_regression", "random_forest", "lightgbm"],
+    ProblemType.REGRESSION: ["baseline", "linear_regression", "random_forest", "lightgbm"],
+    ProblemType.FORECASTING: ["naive", "seasonal_naive"],
     ProblemType.CLUSTERING: ["KMeans"],
 }
 
@@ -96,9 +96,24 @@ def validate_plan(
     plan.feature_columns = [
         c for c in plan.feature_columns if c in known_columns and c != plan.target_column
     ]
-    if not plan.feature_columns:
-        excluded = {plan.target_column} | set(quality_report.suspicious_columns) | set(
-            quality_report.possible_leakage_columns
+    if plan.scope_strategy == ScopeStrategy.HIERARCHICAL:
+        # Hierarchical trains univariate (target/time/entity only, no
+        # covariates - see tools/automl_training.train_hierarchical_timeseries)
+        # so it never needs a feature_columns default backfilled. Only warn if
+        # the Planner explicitly populated one anyway, so it's visible in the
+        # report rather than silently ignored.
+        if plan.feature_columns:
+            notes.append(
+                "feature_columns was set but scope_strategy is hierarchical, which trains "
+                "univariate (target/time/entity only, no covariates) - these columns will be ignored."
+            )
+    elif not plan.feature_columns:
+        excluded = (
+            {plan.target_column}
+            | set(quality_report.suspicious_columns)
+            | set(quality_report.possible_leakage_columns)
+            | set(quality_report.constant_columns)
+            | set(quality_report.near_constant_columns)
         )
         plan.feature_columns = [c for c in dataset_profile.column_names if c not in excluded]
         notes.append("feature_columns was empty/invalid; repaired to all non-target, non-suspicious columns.")

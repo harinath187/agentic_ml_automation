@@ -1,6 +1,5 @@
-"""Model Registry: a catalogue of trainable model definitions, so AutoGluon
-is one training/search engine among several rather than the only source of
-candidate models.
+"""Model Registry: a catalogue of trainable model definitions for
+classification, regression, and (non-hierarchical) forecasting.
 
 Each ModelDefinition pairs a `train_fn`/`predict_fn` with declarative
 metadata (problem types, model family, supported validation strategies,
@@ -9,14 +8,11 @@ which models to run for a given dataset - resolve_candidates() filters it by
 problem_type and by the validated ExperimentPlan's candidate_model_families
 (see tools/model_runner.py, which does the actual training/scoring).
 
-AutoGluon entries are a deliberate exception to the plain train/predict
-shape: TabularPredictor/TimeSeriesPredictor already fit AND score an entire
-internal leaderboard in one call, so their train_fn IS the existing
-tools/automl_training.py function (kept byte-for-byte to preserve current
-behavior), and their predict_fn is a documented no-op - tools/model_runner.py
-special-cases model_family == "automl" to expand the leaderboard into one
-ModelResult per underlying AutoGluon model instead of forcing a single
-score out of them.
+AutoGluon is not registered here - it is used only for the `hierarchical`
+forecasting scope strategy, which trains via
+tools/automl_training.train_hierarchical_timeseries directly from
+orchestration/graph.py, bypassing this registry entirely (see CLAUDE.md's
+scope_strategy routing table).
 """
 from __future__ import annotations
 
@@ -32,7 +28,6 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.preprocessing import LabelEncoder
 
 from agents.schemas import ProblemType, ValidationStrategyType
-from tools import automl_training
 
 
 class ModelResult:
@@ -334,25 +329,6 @@ def _sarima_train_fn(train_df, target_column, time_column, order=(1, 1, 1), seas
     ).fit(disp=False)
 
 
-# --- AutoGluon (existing tools/automl_training.py, unchanged) --------------
-#
-# TabularPredictor/TimeSeriesPredictor fit AND score their whole internal
-# leaderboard in one call, which doesn't fit the plain train_fn/predict_fn(one
-# score) shape every other entry uses. tools/model_runner.py special-cases
-# model_family == "automl" and calls train_fn directly with automl_training's
-# real signature (target_column=..., problem_type=..., time_column=...,
-# time_limit=...) instead of the generic train/predict/score flow, then
-# expands the returned leaderboard into one ModelResult per underlying model.
-# train_fn is the exact, unmodified tools/automl_training function - existing
-# AutoGluon behavior is preserved byte-for-byte.
-
-
-def _autogluon_noop_predict_fn(fitted, test_df, target_column, time_column):
-    """Never called (see module docstring) - exists only so ModelDefinition's
-    shape stays uniform across every registry entry."""
-    return fitted
-
-
 _TABULAR_VALIDATION_STRATEGIES = (
     ValidationStrategyType.TRAIN_TEST_SPLIT,
     ValidationStrategyType.K_FOLD,
@@ -374,15 +350,6 @@ def _classification_registry() -> list[ModelDefinition]:
         ModelDefinition("random_forest", (ProblemType.CLASSIFICATION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=rf_proba),
         ModelDefinition("xgboost", (ProblemType.CLASSIFICATION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",), predict_proba_fn=xgb_proba),
         ModelDefinition("lightgbm", (ProblemType.CLASSIFICATION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",), predict_proba_fn=lgbm_proba),
-        ModelDefinition(
-            "autogluon_tabular",
-            (ProblemType.CLASSIFICATION,),
-            "automl",
-            automl_training.train_models,
-            _autogluon_noop_predict_fn,
-            _TABULAR_VALIDATION_STRATEGIES,
-            required_dependencies=("autogluon.tabular",),
-        ),
     ]
 
 
@@ -399,15 +366,6 @@ def _regression_registry() -> list[ModelDefinition]:
         ModelDefinition("random_forest", (ProblemType.REGRESSION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES),
         ModelDefinition("xgboost", (ProblemType.REGRESSION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",)),
         ModelDefinition("lightgbm", (ProblemType.REGRESSION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",)),
-        ModelDefinition(
-            "autogluon_tabular",
-            (ProblemType.REGRESSION,),
-            "automl",
-            automl_training.train_models,
-            _autogluon_noop_predict_fn,
-            _TABULAR_VALIDATION_STRATEGIES,
-            required_dependencies=("autogluon.tabular",),
-        ),
     ]
 
 
@@ -418,18 +376,6 @@ def _forecasting_registry() -> list[ModelDefinition]:
         ModelDefinition("ets", (ProblemType.FORECASTING,), "statistical", _ets_train_fn, _statsmodels_forecast_predict_fn, _FORECASTING_VALIDATION_STRATEGIES, required_dependencies=("statsmodels",)),
         ModelDefinition("arima", (ProblemType.FORECASTING,), "statistical", _arima_train_fn, _statsmodels_forecast_predict_fn, _FORECASTING_VALIDATION_STRATEGIES, required_dependencies=("statsmodels",)),
         ModelDefinition("sarima", (ProblemType.FORECASTING,), "statistical", _sarima_train_fn, _statsmodels_forecast_predict_fn, _FORECASTING_VALIDATION_STRATEGIES, required_dependencies=("statsmodels",)),
-        ModelDefinition(
-            # Standard (non-hierarchical) forecasting already trains via
-            # train_models (regression over lag/rolling features) - same
-            # function, unchanged, now just one candidate among several.
-            "autogluon_timeseries",
-            (ProblemType.FORECASTING,),
-            "automl",
-            automl_training.train_models,
-            _autogluon_noop_predict_fn,
-            _FORECASTING_VALIDATION_STRATEGIES,
-            required_dependencies=("autogluon.tabular",),
-        ),
     ]
 
 
@@ -480,10 +426,10 @@ def resolve_candidates(problem_type: ProblemType, requested_names: list[str]) ->
 
 
 def default_candidates(problem_type: ProblemType) -> list[ModelDefinition]:
-    """A minimal, safe fallback (a baseline plus the AutoGluon entry) used
-    only when resolve_candidates() couldn't match anything the plan
-    requested - keeps a run from training zero models without ever running
-    "every model for every dataset" by default."""
+    """A minimal, safe fallback (a single baseline model) used only when
+    resolve_candidates() couldn't match anything the plan requested - keeps
+    a run from training zero models without ever running "every model for
+    every dataset" by default."""
     by_name = {d.name: d for d in get_registry_for_problem_type(problem_type)}
-    fallback_names = ("naive", "autogluon_timeseries") if problem_type == ProblemType.FORECASTING else ("baseline", "autogluon_tabular")
+    fallback_names = ("naive",) if problem_type == ProblemType.FORECASTING else ("baseline",)
     return [by_name[name] for name in fallback_names if name in by_name]

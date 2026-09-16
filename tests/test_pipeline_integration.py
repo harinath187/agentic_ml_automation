@@ -22,8 +22,13 @@ def _patch_agents(monkeypatch, plan: ExperimentPlan):
     monkeypatch.setattr(planner_module, "call_llm_json", lambda *a, **k: plan)
 
     def fake_evaluate(metrics, plan_, retry_count, max_retries):
-        models = metrics.get("models", {})
-        best = max(models.items(), key=lambda kv: kv[1]["score_test"])[0] if models else None
+        # Delegate winner selection to the same deterministic ranking engine
+        # production uses (tools/evaluation.py, via _get_or_build_comparison) -
+        # picking by raw score_test here instead would let this stub disagree
+        # with node_recommend's winner (which always uses the real ranking,
+        # e.g. ROC-AUC for classification rather than plain accuracy) whenever
+        # the two metrics don't agree on the same candidate.
+        best = evaluator_module._get_or_build_comparison(metrics, plan_).winner
         return EvaluatorDecision(decision="proceed", best_model=best, reasoning="best test score")
 
     monkeypatch.setattr(evaluator_module, "evaluate_results", fake_evaluate)

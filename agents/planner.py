@@ -159,17 +159,19 @@ Your job is to decide:
      ambiguity (close variants like "Random Forest" are tolerated, but exact
      names are preferred):
        classification: baseline, logistic_regression, random_forest,
-         xgboost, lightgbm, autogluon_tabular
+         xgboost, lightgbm
        regression: baseline, linear_regression, random_forest, xgboost,
-         lightgbm, autogluon_tabular
-       forecasting: naive, seasonal_naive, ets, arima, sarima,
-         autogluon_timeseries
-   - Always include at least one simple baseline (baseline/naive) AND
-     autogluon_tabular/autogluon_timeseries, plus 1-3 others appropriate to
-     the data size and scope strategy (e.g. prefer autogluon_timeseries with
-     item_id grouping for "hierarchical"; a mix of classical and AutoGluon
-     candidates for "pooled"; keep the list short for "per_entity" or
-     "single_entity" since it is trained once per entity).
+         lightgbm
+       forecasting: naive, seasonal_naive, ets, arima, sarima
+   - Always include at least one simple baseline (baseline/naive), plus 1-3
+     others appropriate to the data size and scope strategy. Keep the list
+     short for "per_entity" or "single_entity" since it is trained once per
+     entity.
+   - Exception: if scope_strategy is "hierarchical", candidate_model_families
+     is not used at all - that scope strategy always trains via AutoGluon's
+     TimeSeriesPredictor across all entities jointly (item_id grouping), a
+     separate training path from every other scope strategy. You may leave
+     candidate_model_families empty in that case.
 
 CLARIFICATION RULE
 If the problem type, target column, or entity scope cannot be determined
