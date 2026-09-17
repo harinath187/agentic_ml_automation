@@ -67,6 +67,7 @@ def run_candidates(
     validation_strategy: Optional[ValidationStrategyType] = None,
     validation_folds: Optional[int] = None,
     evaluation_metrics: Optional[list[str]] = None,
+    tuned_model_params: Optional[dict[str, dict]] = None,
 ) -> tuple[dict, dict]:
     """Returns (metrics, chart_data) - see module docstring for why chart_data
     is a separate return value rather than a key inside metrics.
@@ -99,6 +100,7 @@ def run_candidates(
         result = run_model(
             definition, train_df, test_df, target_column, time_column, problem_type,
             validation_strategy, validation_folds,
+            tuned_params=(tuned_model_params or {}).get(definition.name),
         )
         model_results.append(result)
         if result.status == "success":
@@ -228,6 +230,7 @@ def run_model(
     problem_type: ProblemType,
     validation_strategy: Optional[ValidationStrategyType] = None,
     validation_folds: Optional[int] = None,
+    tuned_params: Optional[dict] = None,
 ) -> ModelResult:
     """Runs one non-AutoML candidate end to end: dependency check ->
     validation-strategy check -> (k_fold/stratified_k_fold: cross-validate on
@@ -235,7 +238,7 @@ def run_model(
     test_df -> score. Never raises - every failure mode becomes a ModelResult
     with status != "success".
     """
-    params = dict(definition.default_params)
+    params = {**definition.default_params, **(tuned_params or {})}
 
     missing = [dep for dep in definition.required_dependencies if not is_dependency_available(dep)]
     if missing:
@@ -303,7 +306,12 @@ def run_model(
         definition, fitted, problem_type, test_df, target_column, time_column, feature_importance
     )
 
-    preview = [float(x) for x in np.asarray(predictions).ravel()[:5]]
+    prediction_values = np.asarray(predictions).ravel()[:5]
+    preview = (
+        [str(x) for x in prediction_values]
+        if problem_type == ProblemType.CLASSIFICATION
+        else [float(x) for x in prediction_values]
+    )
     artifacts = {"validation_strategy_executed": validation_strategy_executed} if validation_strategy_executed else None
     model_result = ModelResult(
         model_name=definition.name,

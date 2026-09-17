@@ -186,7 +186,8 @@ def _on_progress(run_id: str, node_name: str, updates: dict) -> None:
     mid-run can already show the user what the Planner decided, right below
     the run status, not just which step it's on.
     """
-    fields: dict = {"current_step": node_name}
+    public_node_name = node_name[5:] if node_name.startswith("node_") else node_name
+    fields: dict = {"current_step": public_node_name}
     plan = updates.get("plan")
     if plan is not None:
         fields["plan_json"] = json.dumps(plan.model_dump(mode="json"))

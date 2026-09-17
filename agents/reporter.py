@@ -123,6 +123,17 @@ def generate_report(
         )
     if split_log is not None:
         prompt_parts.append(f"Split log (JSON):\n{json.dumps(split_log, separators=(',', ':'))}")
+    tuning_results = metrics.get("tuning_results")
+    if tuning_results:
+        prompt_parts.append(
+            f"Hyperparameter tuning summary (JSON):\n{json.dumps(tuning_results, separators=(',', ':'))}"
+        )
+    text_feature_tokens = metrics.get("text_feature_tokens")
+    if text_feature_tokens:
+        prompt_parts.append(
+            "TF-IDF feature token map (aggregate feature names only, never raw rows):\n"
+            f"{json.dumps(text_feature_tokens, separators=(',', ':'))}"
+        )
 
     user_prompt = "\n\n".join(prompt_parts)
     content = call_llm_json(SYSTEM_PROMPT, user_prompt, ReportContent, caller_name="agents.reporter")

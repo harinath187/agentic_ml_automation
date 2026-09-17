@@ -174,6 +174,7 @@ class EvaluatorDecision(BaseModel):
 class ColumnKind(str, Enum):
     NUMERICAL = "numerical"
     CATEGORICAL = "categorical"
+    TEXT = "text"
     DATETIME = "datetime"
     BOOLEAN = "boolean"
     OTHER = "other"
@@ -197,6 +198,9 @@ class ColumnProfile(BaseModel):
     datetime_range: Optional[dict] = Field(
         default=None, description="min/max/distinct_days, only for datetime columns."
     )
+    text_stats: Optional[dict] = Field(
+        default=None, description="vocab_size/avg_length/top_tokens, only for text columns."
+    )
 
 
 class DatasetProfile(BaseModel):
@@ -209,6 +213,7 @@ class DatasetProfile(BaseModel):
     duplicate_row_pct: float = 0.0
     numerical_columns: List[str] = Field(default_factory=list)
     categorical_columns: List[str] = Field(default_factory=list)
+    text_columns: List[str] = Field(default_factory=list)
     datetime_columns: List[str] = Field(default_factory=list)
     boolean_columns: List[str] = Field(default_factory=list)
     constant_columns: List[str] = Field(default_factory=list)

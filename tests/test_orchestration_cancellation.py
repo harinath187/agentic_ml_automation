@@ -23,6 +23,27 @@ def test_cancellable_wrapper_passes_through_when_no_cancel_event():
     assert calls
 
 
+def test_cancellable_wrapper_reports_node_start_before_running_inner_node():
+    events = []
+
+    def inner(state):
+        events.append("inner")
+        return {"ok": True}
+
+    node = _cancellable(inner)
+    result = node(
+        {
+            "cancel_event": None,
+            "progress_callback": lambda name, update: events.append((name, update)),
+        }
+    )
+
+    assert result == {"ok": True}
+    assert events[0][0] == "inner"
+    assert events[0][1] == {"progress_status": "started"}
+    assert events[1] == "inner"
+
+
 def test_cancellable_wrapper_passes_through_when_event_not_set():
     event = threading.Event()
     node = _cancellable(lambda state: {"ok": True})

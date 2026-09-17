@@ -66,6 +66,19 @@ def test_cleaning_leaves_genuinely_categorical_text_column_alone():
     assert "city" in log["encoded_columns"]
 
 
+def test_cleaning_preserves_text_columns_and_fills_missing_values():
+    df = pd.DataFrame({
+        "notes": ["a long customer note with useful context", None, "another long note"],
+        "price": [100, 120, 150],
+    })
+    cleaned, log = clean_data(df, target_column="price", text_columns=["notes"])
+
+    assert cleaned["notes"].tolist() == [
+        "a long customer note with useful context", "", "another long note"
+    ]
+    assert "notes" not in log["encoded_columns"]
+
+
 def test_cleaning_forward_fill_for_time_series(forecasting_df):
     df = forecasting_df.copy()
     df.loc[5, "sales"] = None

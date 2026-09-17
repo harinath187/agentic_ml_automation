@@ -11,6 +11,7 @@ const STAGES = [
   { key: "select", label: "Selecting features", nodes: ["filter_entity", "feature_selection"] },
   { key: "clean", label: "Cleaning & engineering", nodes: ["eda", "clean", "feature_engineer"] },
   { key: "split", label: "Splitting data", nodes: ["split"] },
+  { key: "tune", label: "Tuning models", nodes: ["tune_models"] },
   { key: "train", label: "Training models", nodes: ["train", "per_entity_pipeline", "hierarchical_train"] },
   { key: "evaluate", label: "Evaluating models", nodes: ["evaluate"] },
   { key: "recommend", label: "Recommending", nodes: ["recommend"] },
@@ -23,7 +24,8 @@ const NODE_TO_STAGE_INDEX = STAGES.reduce((acc, stage, index) => {
 }, {});
 
 export default function RunProgress({ status, currentStep }) {
-  const activeIndex = status === "running" ? NODE_TO_STAGE_INDEX[currentStep] ?? -1 : -1;
+  const normalizedStep = currentStep?.startsWith("node_") ? currentStep.slice(5) : currentStep;
+  const activeIndex = status === "running" ? NODE_TO_STAGE_INDEX[normalizedStep] ?? -1 : -1;
 
   return (
     <div className="run-progress">
@@ -50,7 +52,7 @@ export default function RunProgress({ status, currentStep }) {
       <p className="muted run-progress-status">
         {status === "queued" && "Waiting for a free worker..."}
         {status === "running" && activeIndex === -1 && "Starting..."}
-        {status === "running" && activeIndex !== -1 && `Current step: ${STAGES[activeIndex].label} (${currentStep}).`}
+        {status === "running" && activeIndex !== -1 && `Current step: ${STAGES[activeIndex].label} (${normalizedStep}).`}
       </p>
     </div>
   );

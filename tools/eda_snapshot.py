@@ -115,6 +115,16 @@ def _categorical_column_stats(series: pd.Series) -> Optional[dict]:
     }
 
 
+def _text_column_stats(series: pd.Series) -> Optional[dict]:
+    values = series.dropna().astype(str)
+    if values.empty:
+        return None
+    return {
+        "vocab_size": int(len(set(token.lower() for value in values for token in value.split()))),
+        "avg_length": round(float(values.str.len().mean()), 2),
+    }
+
+
 def _datetime_column_stats(series: pd.Series) -> Optional[dict]:
     parsed = pd.to_datetime(series, errors="coerce").dropna()
     if parsed.empty:
@@ -147,6 +157,8 @@ def _column_stats(series: pd.Series, kind: str) -> Optional[dict]:
         return _datetime_column_stats(series)
     if kind == "boolean":
         return _boolean_column_stats(series)
+    if kind == "text":
+        return _text_column_stats(series)
     return _categorical_column_stats(series)
 
 

@@ -1,3 +1,5 @@
+import pandas as pd
+
 from tools.feature_engineering import engineer_features
 
 
@@ -24,3 +26,16 @@ def test_regression_scales_numeric_columns(regression_df):
     assert abs(engineered["sqft"].mean()) < 1e-6
     assert "sqft" in log["scaled_columns"]
     assert "price" not in log["scaled_columns"]
+
+
+def test_text_column_survives_feature_engineering_unchanged():
+    df = pd.DataFrame({
+        "notes": ["first long note", "second long note"],
+        "value": [1.0, 2.0],
+        "target": [0, 1],
+    })
+    engineered, _ = engineer_features(
+        df, problem_type="regression", target_column="target", text_columns=["notes"]
+    )
+
+    assert engineered["notes"].tolist() == df["notes"].tolist()

@@ -18,6 +18,7 @@ def engineer_features(
     target_column: Optional[str] = None,
     time_column: Optional[str] = None,
     entity_column: Optional[str] = None,
+    text_columns: Optional[list[str]] = None,
     lags: tuple[int, ...] = (1, 7),
     rolling_windows: tuple[int, ...] = (7,),
 ) -> tuple[pd.DataFrame, dict]:

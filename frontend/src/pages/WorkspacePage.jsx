@@ -8,6 +8,7 @@ import {
   datasetsIn,
   fmtBytes,
   fmtDate,
+  fmtDateTime,
   projectsIn,
   runsIn,
   useStore,
@@ -120,8 +121,11 @@ function DashboardBody({ ws }) {
               return (
                 <div className="list-row" key={r.id} style={{ cursor: "default" }}>
                   <div className="list-main">
-                    <div className="list-title">{proj ? proj.name : "unknown project"}</div>
-                    <div className="list-sub mono">{r.id}</div>
+                    <div className="list-title">{proj ? proj.name : "Unknown project"}</div>
+                    <div className="list-sub">
+                      Run · {fmtDateTime(r.createdAt)}
+                                          Run · {fmtDateTime(r.createdAt)}
+                    </div>
                   </div>
                   <div className="list-side">
                     <RunStatusPill status={r.status} />

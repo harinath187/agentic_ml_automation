@@ -2,6 +2,8 @@
 (tools/plan_validation.py). No LLM involved - plans are constructed by hand
 to simulate both well-formed and broken Planner output.
 """
+import pandas as pd
+
 from agents.schemas import (
     ExperimentPlan,
     ProblemType,
@@ -102,6 +104,26 @@ def test_hallucinated_target_column_is_repaired_from_recommendation():
 
     assert result.needs_clarification is False
     assert result.target_column == target_analysis.recommended_target == "price"
+
+
+def test_string_email_labels_repair_wrong_regression_plan_to_classification():
+    df = pd.DataFrame({
+        "message": ["free offer for you", "team meeting tomorrow", "winner claim now", "project update"],
+        "label": ["spam", "ham", "spam", "ham"],
+    })
+    profile = profile_dataset(df)
+    target_analysis = analyze_target(df, profile)
+    quality_report = analyze_data_quality(df, profile)
+    plan = ExperimentPlan(
+        problem_type=ProblemType.REGRESSION,
+        target_column="label",
+        feature_columns=["message"],
+    )
+
+    result = validate_plan(plan, profile, target_analysis, quality_report)
+
+    assert result.problem_type == ProblemType.CLASSIFICATION
+    assert result.target_column == "label"
     assert result.validation_notes  # repair was logged
 
 

@@ -28,7 +28,7 @@ You are given a business problem description, a dataset schema summary
 aggregated stats only - never raw rows), and - when available - a
 deterministic Data Intelligence report computed upstream without any LLM:
 a DatasetProfile (row/column counts, per-column type/cardinality/missingness,
-duplicate rows, constant columns), a TargetAnalysis (candidate target columns
+duplicate rows, constant columns, and text_columns), a TargetAnalysis (candidate target columns
 with cardinality/type signals - a shortlist, not a decision), a
 DataQualityReport (missing values, duplicates, possible outliers, invalid
 dtypes, suspicious ID-like columns, heuristic leakage flags, and
@@ -73,6 +73,8 @@ Your job is to decide:
      target, obvious ID-like/suspicious columns (see DataQualityReport), and
      anything DataQualityReport flags as possible_leakage_columns unless the
      business description clearly justifies including it.
+    TEXT columns may be included as features; they are automatically TF-IDF
+    vectorized after the train/test split.
    - unmatched_business_requirements: if the business description mentions a
      metric, attribute, or feature that has no reasonably-matching column in
      the schema (even approximately), list the exact phrase here instead of
@@ -231,8 +233,13 @@ def build_plan(
 ) -> ExperimentPlan:
     prompt_parts = [
         f"Business problem description:\n{business_description}",
-        f"Dataset schema summary (JSON):\n{json.dumps(schema_summary, separators=(',', ':'))}",
     ]
+    schema_for_prompt = dict(schema_summary)
+    if dataset_profile is not None:
+      schema_for_prompt["text_columns"] = list(dataset_profile.text_columns)
+    prompt_parts.append(
+      f"Dataset schema summary (JSON):\n{json.dumps(schema_for_prompt, separators=(',', ':'))}"
+    )
     if dataset_profile is not None:
         prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json()}")
     if target_analysis is not None:

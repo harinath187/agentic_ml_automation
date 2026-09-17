@@ -43,6 +43,36 @@ def test_run_model_baseline_classifier_succeeds(classification_train_test):
 
     assert result.status == "success"
     assert result.eval_metric == "accuracy"
+
+
+def test_run_model_classifier_preserves_string_target_preview():
+    train_df = pd.DataFrame({"feature": [0, 1, 0, 1], "target": ["ham", "spam", "ham", "spam"]})
+    test_df = pd.DataFrame({"feature": [0, 1], "target": ["ham", "spam"]})
+    (baseline,), _ = resolve_candidates(ProblemType.CLASSIFICATION, ["baseline"])
+
+    result = run_model(baseline, train_df, test_df, "target", None, ProblemType.CLASSIFICATION)
+
+    assert result.status == "success"
+    assert set(result.prediction).issubset({"ham", "spam"})
+
+
+def test_run_model_uses_tuned_parameters(classification_train_test):
+    train_df, test_df = classification_train_test
+    (logistic,), _ = resolve_candidates(ProblemType.CLASSIFICATION, ["logistic_regression"])
+
+    result = run_model(
+        logistic,
+        train_df,
+        test_df,
+        "target",
+        None,
+        ProblemType.CLASSIFICATION,
+        tuned_params={"C": 0.1, "class_weight": "balanced"},
+    )
+
+    assert result.status == "success"
+    assert result.parameters["C"] == 0.1
+    assert result.parameters["class_weight"] == "balanced"
     assert result.score_test is not None
     assert 0.0 <= result.score_test <= 1.0
     assert result.training_time is not None

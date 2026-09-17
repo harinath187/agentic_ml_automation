@@ -27,6 +27,32 @@ def test_profile_dataset_classifies_column_kinds(classification_df):
     assert "contract_type" in profile.categorical_columns
 
 
+def test_profile_dataset_classifies_near_unique_long_strings_as_text():
+    df = pd.DataFrame({
+        "message": [f"Customer message number {i} contains useful support context" for i in range(50)],
+        "target": [0, 1] * 25,
+    })
+    profile = profile_dataset(df)
+    column = next(c for c in profile.columns if c.name == "message")
+
+    assert column.inferred_kind == ColumnKind.TEXT
+    assert column.text_stats["vocab_size"] > 0
+    assert column.text_stats["avg_length"] >= 25
+    assert "message" in profile.text_columns
+
+
+def test_profile_dataset_does_not_classify_known_long_string_target_as_text():
+    df = pd.DataFrame({
+        "review": [f"Long label description {i} with enough words" for i in range(20)],
+        "feature": range(20),
+    })
+    profile = profile_dataset(df, target_column="review")
+    review = next(c for c in profile.columns if c.name == "review")
+
+    assert review.inferred_kind == ColumnKind.CATEGORICAL
+    assert "review" not in profile.text_columns
+
+
 def test_profile_dataset_datetime_kind_and_range(forecasting_df):
     profile = profile_dataset(forecasting_df)
     assert "date" in profile.datetime_columns

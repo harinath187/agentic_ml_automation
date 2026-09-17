@@ -34,6 +34,7 @@ def clean_data(
     target_column: Optional[str] = None,
     time_column: Optional[str] = None,
     entity_column: Optional[str] = None,
+    text_columns: Optional[list[str]] = None,
     aggressive_outlier_handling: bool = False,
 ) -> tuple[pd.DataFrame, dict]:
     """time_column/entity_column are excluded from the categorical
@@ -54,6 +55,7 @@ def clean_data(
     DataFrame directly in memory) for the regression coverage.
     """
     out = df.copy()
+    text_columns = text_columns or []
     log: dict = {
         "imputation": {},
         "outliers_capped": {},
@@ -71,10 +73,15 @@ def clean_data(
     # numeric/categorical split below - otherwise such a column falls into
     # the object-dtype bucket and gets pd.factorize'd into meaningless
     # integer codes instead of treated as the numeric feature it actually is.
+    for col in text_columns:
+        if col in out.columns:
+            out[col] = out[col].fillna("")
+
     text_cols = out.select_dtypes(include=["object", "category"]).columns.tolist()
     for excluded in (target_column, time_column, entity_column):
         if excluded in text_cols:
             text_cols.remove(excluded)
+    text_cols = [col for col in text_cols if col not in text_columns]
     for col in text_cols:
         parsed = _parse_numeric_text(out[col])
         non_null = out[col].notna().sum()
@@ -101,6 +108,7 @@ def clean_data(
     for excluded in (target_column, time_column, entity_column):
         if excluded in categorical_cols:
             categorical_cols.remove(excluded)
+    categorical_cols = [col for col in categorical_cols if col not in text_columns]
 
     for col in categorical_cols:
         missing = int(out[col].isna().sum())

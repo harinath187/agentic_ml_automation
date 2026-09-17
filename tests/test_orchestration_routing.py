@@ -200,6 +200,14 @@ def test_graph_includes_phase2_nodes_in_order():
     assert ("profile_data", "quality_analysis") in edges
     assert ("quality_analysis", "detect_problem") in edges
     assert ("detect_problem", "planner_agent") in edges
+
+
+def test_graph_vectorizes_text_after_split_before_train():
+    app = build_graph()
+    edges = {(e.source, e.target) for e in app.get_graph().edges}
+    assert "vectorize_text" in app.get_graph().nodes
+    assert ("split", "vectorize_text") in edges
+    assert ("vectorize_text", "train") in edges
     assert ("planner_agent", "validate_plan") in edges
 
 

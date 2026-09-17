@@ -75,6 +75,23 @@ def validate_plan(
         else:
             return _reject(plan, "Which column should be predicted (the target)?")
 
+    target_profile = next(
+        (column for column in dataset_profile.columns if column.name == plan.target_column),
+        None,
+    )
+    if (
+        target_profile is not None
+        and target_profile.inferred_kind.value in {"categorical", "boolean"}
+        and plan.problem_type in {ProblemType.REGRESSION, ProblemType.FORECASTING}
+    ):
+        notes.append(
+            f"problem_type {plan.problem_type.value!r} was repaired to 'classification' because "
+            f"target column {plan.target_column!r} contains categorical labels."
+        )
+        plan.problem_type = ProblemType.CLASSIFICATION
+        plan.time_column = None
+        plan.forecast_horizon = None
+
     if plan.problem_type == ProblemType.FORECASTING and not plan.time_column:
         if dataset_profile.datetime_columns:
             plan.time_column = dataset_profile.datetime_columns[0]

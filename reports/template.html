@@ -166,7 +166,7 @@
 
   <!-- 6. Preprocessing Performed -->
   <h2 id="preprocessing">6. Preprocessing Performed</h2>
-  {% if cleaning_log or feature_log or split_log %}
+  {% if cleaning_log or feature_log or split_log or metrics.tuning_results %}
   <table>
     {% if cleaning_log %}
     <tr><th>Duplicates removed</th><td>{{ cleaning_log.duplicates_removed }}</td></tr>
@@ -183,6 +183,13 @@
     {% if split_log %}
     <tr><th>Split method</th><td>{{ split_log.method }}</td></tr>
     <tr><th>Train / test rows</th><td>{{ split_log.train_rows }} / {{ split_log.test_rows }}</td></tr>
+    {% endif %}
+    {% if metrics.tuning_results %}
+    <tr><th>Hyperparameter tuning</th><td>
+      {% for model, tuning in metrics.tuning_results.items() %}
+        {{ model }}: {{ tuning.status }}{% if tuning.best_params is defined %} ({{ tuning.best_params }}){% endif %}{{ ", " if not loop.last }}
+      {% endfor %}
+    </td></tr>
     {% endif %}
   </table>
   {% else %}

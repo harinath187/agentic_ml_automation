@@ -81,6 +81,7 @@ from tools import (
     experiment_tracking,
     feature_engineering,
     feature_selection,
+    hyperparameter_tuning,
     model_registry,
     model_runner,
     plan_validation,
@@ -88,6 +89,7 @@ from tools import (
     profiling,
     report_charts,
     splitting,
+    text_vectorization,
 )
 from tools.logging_config import get_logger
 
@@ -123,6 +125,7 @@ class PipelineState(TypedDict, total=False):
     file_path: str
     business_description: str
     max_retries: int
+    progress_callback: Optional[Callable[[str, dict], None]]
 
     df: Any
     schema_summary: dict
@@ -142,6 +145,10 @@ class PipelineState(TypedDict, total=False):
     train_df: Any
     test_df: Any
     split_log: dict
+    text_vectorizers: dict
+    text_vectorization_log: dict
+    tuned_model_params: dict
+    tuning_results: dict
 
     metrics: dict
     chart_data: dict
@@ -277,11 +284,14 @@ def node_cleaning(state: PipelineState) -> PipelineState:
     # tools/cleaning.py's docstring for why it must never be one-hot/label
     # encoded away before feature engineering/splitting can group by it.
     entity_column = plan.entity_column if plan.scope_strategy == ScopeStrategy.POOLED else None
+    text_columns = [c for c in state.get("dataset_profile", DatasetProfile(row_count=0, column_count=0)).text_columns
+                    if c in plan.feature_columns]
     cleaned_df, log = cleaning.clean_data(
         state["df"],
         target_column=plan.target_column,
         time_column=plan.time_column,
         entity_column=entity_column,
+        text_columns=text_columns,
         aggressive_outlier_handling=aggressive,
     )
     return {"cleaned_df": cleaned_df, "cleaning_log": log}
@@ -292,12 +302,15 @@ def node_feature_engineering(state: PipelineState) -> PipelineState:
     # entity_column is only threaded through for pooled forecasting, so lag/
     # rolling features stay scoped per entity instead of leaking across them.
     entity_column = plan.entity_column if plan.scope_strategy == ScopeStrategy.POOLED else None
+    text_columns = [c for c in state.get("dataset_profile", DatasetProfile(row_count=0, column_count=0)).text_columns
+                    if c in plan.feature_columns]
     engineered_df, log = feature_engineering.engineer_features(
         state["cleaned_df"],
         problem_type=plan.problem_type.value if plan.problem_type else "regression",
         target_column=plan.target_column,
         time_column=plan.time_column,
         entity_column=entity_column,
+        text_columns=text_columns,
     )
     return {"engineered_df": engineered_df, "feature_log": log}
 
@@ -313,6 +326,25 @@ def node_split(state: PipelineState) -> PipelineState:
         target_column=plan.target_column,
     )
     return {"train_df": train_df, "test_df": test_df, "split_log": log}
+
+
+def node_vectorize_text(state: PipelineState) -> PipelineState:
+    plan = state["plan"]
+    profile = state.get("dataset_profile")
+    text_columns = [c for c in profile.text_columns if c in plan.feature_columns] if profile else []
+    vectorizers, log = text_vectorization.fit_tfidf_vectorizers(
+        state["train_df"], text_columns
+    )
+    return {
+        "train_df": text_vectorization.apply_tfidf_vectorizers(
+            state["train_df"], vectorizers, text_columns
+        ),
+        "test_df": text_vectorization.apply_tfidf_vectorizers(
+            state["test_df"], vectorizers, text_columns
+        ),
+        "text_vectorizers": vectorizers,
+        "text_vectorization_log": log,
+    }
 
 
 def node_train(state: PipelineState) -> PipelineState:
@@ -355,8 +387,44 @@ def node_train(state: PipelineState) -> PipelineState:
         validation_strategy=plan.validation_strategy.strategy_type if plan.validation_strategy else None,
         validation_folds=plan.validation_strategy.folds if plan.validation_strategy else None,
         evaluation_metrics=plan.evaluation_metrics,
+        tuned_model_params=state.get("tuned_model_params"),
     )
+    metrics["text_feature_tokens"] = state.get("text_vectorization_log", {}).get("feature_tokens", {})
+    metrics["tuning_results"] = state.get("tuning_results", {})
     return {"metrics": metrics, "chart_data": chart_data}
+
+
+def node_tune_models(state: PipelineState) -> PipelineState:
+    """Tune declared classical model spaces on train_df only.
+
+    The final test frame is intentionally not passed to this node. Forecasting,
+    hierarchical, and AutoGluon per-entity paths do not use this registry tuner.
+    """
+    plan = state["plan"]
+    problem_type = plan.problem_type or ProblemType.REGRESSION
+    candidates, _unmatched = model_registry.resolve_candidates(
+        problem_type, plan.candidate_model_families
+    )
+    if not candidates:
+        candidates = model_registry.default_candidates(problem_type)
+    if problem_type not in (ProblemType.CLASSIFICATION, ProblemType.REGRESSION):
+        return {
+            "tuned_model_params": {},
+            "tuning_results": {"status": "skipped", "reason": "unsupported problem type"},
+        }
+
+    tuned_params, results = hyperparameter_tuning.tune_models(
+        candidates,
+        state["train_df"],
+        target_column=plan.target_column,
+        time_column=plan.time_column,
+        problem_type=problem_type,
+        validation_strategy=(
+            plan.validation_strategy.strategy_type if plan.validation_strategy else None
+        ),
+        metric=plan.evaluation_metrics[0] if plan.evaluation_metrics else None,
+    )
+    return {"tuned_model_params": tuned_params, "tuning_results": results}
 
 
 def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
@@ -386,6 +454,8 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
     aggressive = aggressive or "cap_outliers" in plan.preprocessing_requirements
 
     per_entity_metrics: dict[str, dict] = {}
+    text_vectorizers: dict = {}
+    text_vectorization_log: dict = {}
     skipped: list[dict] = []
 
     for value in entity_values:
@@ -394,10 +464,13 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
             skipped.append({"entity": str(value), "reason": f"only {len(subset)} rows (< {MIN_ROWS_PER_ENTITY})"})
             continue
         try:
+            text_columns = [c for c in state.get("dataset_profile", DatasetProfile(row_count=0, column_count=0)).text_columns
+                            if c in plan.feature_columns]
             cleaned, _ = cleaning.clean_data(
                 subset,
                 target_column=plan.target_column,
                 time_column=plan.time_column,
+                text_columns=text_columns,
                 aggressive_outlier_handling=aggressive,
             )
             engineered, _ = feature_engineering.engineer_features(
@@ -405,6 +478,7 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
                 problem_type=problem_type,
                 target_column=plan.target_column,
                 time_column=plan.time_column,
+                text_columns=text_columns,
             )
             train_df, test_df, _ = splitting.split_data(
                 engineered, problem_type=problem_type, time_column=plan.time_column
@@ -412,6 +486,13 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
             if len(train_df) < 5 or len(test_df) < 1:
                 skipped.append({"entity": str(value), "reason": "not enough rows after split"})
                 continue
+            entity_vectorizers, entity_log = text_vectorization.fit_tfidf_vectorizers(
+                train_df, text_columns
+            )
+            train_df = text_vectorization.apply_tfidf_vectorizers(train_df, entity_vectorizers, text_columns)
+            test_df = text_vectorization.apply_tfidf_vectorizers(test_df, entity_vectorizers, text_columns)
+            text_vectorizers[value] = entity_vectorizers
+            text_vectorization_log[value] = entity_log
             per_entity_metrics[str(value)] = automl_training.train_models(
                 train_df,
                 test_df,
@@ -430,7 +511,12 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
         "entities_skipped": skipped,
         "entities_truncated": truncated,
     }
-    return {"metrics": metrics, "feature_selection_log": feature_selection_log}
+    return {
+        "metrics": metrics,
+        "feature_selection_log": feature_selection_log,
+        "text_vectorizers": text_vectorizers,
+        "text_vectorization_log": text_vectorization_log,
+    }
 
 
 def _aggregate_per_entity_models(per_entity_metrics: dict[str, dict]) -> dict:
@@ -578,6 +664,12 @@ def _cancellable(node_fn):
         event = state.get("cancel_event")
         if event is not None and event.is_set():
             raise PipelineCancelled("Run was cancelled.")
+        progress_callback = state.get("progress_callback")
+        if progress_callback is not None:
+            node_name = node_fn.__name__
+            if node_name.startswith("node_"):
+                node_name = node_name[5:]
+            progress_callback(node_name, {"progress_status": "started"})
         return node_fn(state)
 
     return wrapper
@@ -598,6 +690,8 @@ def build_graph():
     graph.add_node("clean", _cancellable(node_cleaning))
     graph.add_node("feature_engineer", _cancellable(node_feature_engineering))
     graph.add_node("split", _cancellable(node_split))
+    graph.add_node("vectorize_text", _cancellable(node_vectorize_text))
+    graph.add_node("tune_models", _cancellable(node_tune_models))
     graph.add_node("train", _cancellable(node_train))
     graph.add_node("per_entity_pipeline", _cancellable(node_per_entity_pipeline))
     graph.add_node("hierarchical_train", _cancellable(node_hierarchical_train))
@@ -627,7 +721,9 @@ def build_graph():
     graph.add_edge("eda", "clean")
     graph.add_edge("clean", "feature_engineer")
     graph.add_edge("feature_engineer", "split")
-    graph.add_edge("split", "train")
+    graph.add_edge("split", "vectorize_text")
+    graph.add_edge("vectorize_text", "tune_models")
+    graph.add_edge("tune_models", "train")
     graph.add_edge("train", "evaluate")
     graph.add_edge("per_entity_pipeline", "evaluate")
     graph.add_edge("hierarchical_train", "evaluate")
@@ -702,6 +798,7 @@ def run_pipeline(
         "file_path": file_path,
         "business_description": business_description,
         "max_retries": max_retries,
+        "progress_callback": progress_callback,
         "retry_count": 0,
     }
 

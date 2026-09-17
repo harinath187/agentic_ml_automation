@@ -5,7 +5,15 @@ import DatasetEdaModal from "../components/DatasetEdaModal";
 import PlanSummary from "../components/PlanSummary";
 import ReportTabs from "../components/ReportTabs";
 import RunProgress from "../components/RunProgress";
-import { currentProject, datasetsForProject, fmtBytes, fmtDate, runsForProject, useStore } from "../store";
+import {
+  currentProject,
+  datasetsForProject,
+  fmtBytes,
+  fmtDate,
+  fmtDateTime,
+  runsForProject,
+  useStore,
+} from "../store";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -20,6 +28,60 @@ function RunStatusPill({ status }) {
   };
   const info = map[status] || { cls: "pill-running", label: status };
   return <span className={`pill ${info.cls}`}>{info.label}</span>;
+}
+
+function RunDetails({ runRecord, datasets, runError, onCancel, onSubmitClarification, clarificationAnswer, setClarificationAnswer }) {
+  return (
+    <div className="run-accordion-body">
+      <div className="section-head">
+        <h3>Run details</h3>
+        <span className="hint">
+          {runRecord.dataset_id ? datasets.find((dataset) => dataset.id === runRecord.dataset_id)?.name || "Dataset" : "Pipeline run"}
+          {runRecord.created_at ? ` · ${fmtDateTime(runRecord.created_at)}` : ""}
+        </span>
+      </div>
+
+      {runError && <p className="error">{runError}</p>}
+
+      {runRecord.status === "queued" && (
+        <>
+          <RunProgress status="queued" currentStep={null} />
+          {typeof runRecord.queue_depth === "number" && <p className="muted">{runRecord.queue_depth} run(s) queued/in progress.</p>}
+          <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancel</button>
+        </>
+      )}
+
+      {runRecord.status === "running" && (
+        <>
+          <RunProgress status="running" currentStep={runRecord.current_step} />
+          {runRecord.started_at && <p className="muted">Started at {runRecord.started_at}.</p>}
+          {runRecord.plan ? <PlanSummary plan={runRecord.plan} /> : <p className="muted">Waiting for the Planner to decide an approach...</p>}
+          <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancel</button>
+        </>
+      )}
+
+      {runRecord.status === "cancelled" && (
+        <div className="card warning"><h3>Run cancelled</h3><p className="muted">This run was cancelled before it finished.</p></div>
+      )}
+
+      {runRecord.status === "needs_clarification" && (
+        <div className="card warning">
+          <h3>Clarification needed</h3>
+          <p>{runRecord.clarification_question}</p>
+          <textarea rows={2} placeholder="Type your answer here..." value={clarificationAnswer} onChange={(e) => setClarificationAnswer(e.target.value)} />
+          <button className="btn btn-primary btn-sm" disabled={!clarificationAnswer.trim()} onClick={onSubmitClarification}>Submit answer &amp; rerun</button>
+        </div>
+      )}
+
+      {runRecord.status === "failed" && (
+        <div className="card error-card"><h3>Pipeline failed</h3><p>{runRecord.error}</p></div>
+      )}
+
+      {runRecord.status === "completed" && (
+        <div className="card"><h3>Results</h3><ReportTabs runRecord={runRecord} /></div>
+      )}
+    </div>
+  );
 }
 
 export default function ProjectPage() {
@@ -130,6 +192,13 @@ export default function ProjectPage() {
     } catch (err) {
       setRunError(err.message);
     }
+  }
+
+  function selectRun(runId) {
+    setRunError("");
+    setRunRecord(null);
+    setClarificationAnswer("");
+    setActiveRunId((currentId) => (currentId === runId ? null : runId));
   }
 
   async function handleCancelRun() {
@@ -296,106 +365,27 @@ export default function ProjectPage() {
         </div>
         {runs.length ? (
           <div className="list">
-            {runs.slice(0, 8).map((r) => (
-              <button
-                key={r.id}
-                className="list-row"
-                onClick={() => setActiveRunId(r.id)}
-              >
-                <div className="list-icon">▶</div>
-                <div className="list-main">
-                  <div className="list-title mono">{r.id}</div>
-                  <div className="list-sub">{fmtDate(r.createdAt)}</div>
+            {runs.slice(0, 8).map((r) => {
+              const expanded = activeRunId === r.id;
+              return (
+                <div className={`run-accordion${expanded ? " is-open" : ""}`} key={r.id}>
+                  <button className="list-row" onClick={() => selectRun(r.id)} aria-expanded={expanded}>
+                    <div className="list-icon">{expanded ? "▼" : "▶"}</div>
+                    <div className="list-main">
+                      <div className="list-title">{datasets.find((dataset) => dataset.id === r.datasetId)?.name || "Dataset"}</div>
+                      <div className="list-sub">{fmtDateTime(r.createdAt)}</div>
+                    </div>
+                    <div className="list-side"><RunStatusPill status={r.status} /></div>
+                  </button>
+                  {expanded && runRecord && <RunDetails runRecord={runRecord} datasets={datasets} runError={runError} onCancel={handleCancelRun} onSubmitClarification={handleSubmitClarification} clarificationAnswer={clarificationAnswer} setClarificationAnswer={setClarificationAnswer} />}
                 </div>
-                <div className="list-side">
-                  <RunStatusPill status={r.status} />
-                </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="empty">No runs yet for this project.</div>
         )}
       </div>
-
-      {runRecord && (
-        <div className="section">
-          <div className="section-head">
-            <h2>Run detail</h2>
-            <span className="hint mono">{activeRunId}</span>
-          </div>
-
-          {runError && <p className="error">{runError}</p>}
-
-          {runRecord.status === "queued" && (
-            <div className="card">
-              <RunProgress status="queued" currentStep={null} />
-              {typeof runRecord.queue_depth === "number" && (
-                <p className="muted">{runRecord.queue_depth} run(s) queued/in progress.</p>
-              )}
-              <button className="btn btn-outline btn-sm" onClick={handleCancelRun}>
-                Cancel
-              </button>
-            </div>
-          )}
-
-          {runRecord.status === "running" && (
-            <div className="card">
-              <RunProgress status="running" currentStep={runRecord.current_step} />
-              {runRecord.started_at && <p className="muted">Started at {runRecord.started_at}.</p>}
-              {runRecord.plan ? (
-                <PlanSummary plan={runRecord.plan} />
-              ) : (
-                <p className="muted">Waiting for the Planner to decide an approach...</p>
-              )}
-              <button className="btn btn-outline btn-sm" onClick={handleCancelRun}>
-                Cancel
-              </button>
-            </div>
-          )}
-
-          {runRecord.status === "cancelled" && (
-            <div className="card warning">
-              <h2>Run cancelled</h2>
-              <p className="muted">This run was cancelled before it finished.</p>
-            </div>
-          )}
-
-          {runRecord.status === "needs_clarification" && (
-            <div className="card warning">
-              <h2>Clarification needed</h2>
-              <p>{runRecord.clarification_question}</p>
-              <textarea
-                rows={2}
-                placeholder="Type your answer here..."
-                value={clarificationAnswer}
-                onChange={(e) => setClarificationAnswer(e.target.value)}
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={!clarificationAnswer.trim()}
-                onClick={handleSubmitClarification}
-              >
-                Submit answer &amp; rerun
-              </button>
-            </div>
-          )}
-
-          {runRecord.status === "failed" && (
-            <div className="card error-card">
-              <h2>Pipeline failed</h2>
-              <p>{runRecord.error}</p>
-            </div>
-          )}
-
-          {runRecord.status === "completed" && (
-            <div className="card">
-              <h2>Results</h2>
-              <ReportTabs runRecord={runRecord} />
-            </div>
-          )}
-        </div>
-      )}
 
       {previewDs && <DatasetEdaModal dataset={previewDs} onClose={() => setPreviewDs(null)} />}
     </>

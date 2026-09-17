@@ -500,6 +500,28 @@ button.card:hover,
   width: 100%;
   text-align: left;
 }
+.run-accordion {
+  border-bottom: 1px solid var(--border);
+}
+.run-accordion:last-child {
+  border-bottom: none;
+}
+.run-accordion .list-row {
+  border-bottom: none;
+}
+.run-accordion-body {
+  padding: 16px;
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+.run-accordion-body .section-head {
+  margin-bottom: 12px;
+}
+.run-accordion-body .card {
+  box-shadow: none;
+  margin-top: 12px;
+}
 .list-row:last-child {
   border-bottom: none;
 }

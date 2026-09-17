@@ -112,6 +112,7 @@ class ModelDefinition:
     supported_validation_strategies: tuple[ValidationStrategyType, ...] = ()
     required_dependencies: tuple[str, ...] = ()
     default_params: dict = field(default_factory=dict)
+    tuning_space: dict = field(default_factory=dict)
     predict_proba_fn: Optional[Callable[..., Any]] = None
     """Classifiers only: returns the positive-class probability for binary
     targets, enabling ROC-AUC (tools/evaluation.py). None for regressors,
@@ -406,13 +407,13 @@ def _classification_registry() -> list[ModelDefinition]:
 
     return [
         ModelDefinition("baseline", (ProblemType.CLASSIFICATION,), "baseline", baseline_train, baseline_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=baseline_proba),
-        ModelDefinition("logistic_regression", (ProblemType.CLASSIFICATION,), "linear", logreg_train, logreg_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=logreg_proba),
-        ModelDefinition("random_forest", (ProblemType.CLASSIFICATION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=rf_proba),
-        ModelDefinition("xgboost", (ProblemType.CLASSIFICATION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",), predict_proba_fn=xgb_proba),
-        ModelDefinition("lightgbm", (ProblemType.CLASSIFICATION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",), predict_proba_fn=lgbm_proba),
-        ModelDefinition("decision_tree", (ProblemType.CLASSIFICATION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=dtree_proba),
-        ModelDefinition("svm", (ProblemType.CLASSIFICATION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=svm_proba),
-        ModelDefinition("knn", (ProblemType.CLASSIFICATION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=knn_proba),
+        ModelDefinition("logistic_regression", (ProblemType.CLASSIFICATION,), "linear", logreg_train, logreg_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"C": [0.1, 1.0, 10.0], "class_weight": [None, "balanced"]}, predict_proba_fn=logreg_proba),
+        ModelDefinition("random_forest", (ProblemType.CLASSIFICATION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"n_estimators": [100, 300], "max_depth": [None, 20], "min_samples_split": [2, 5]}, predict_proba_fn=rf_proba),
+        ModelDefinition("xgboost", (ProblemType.CLASSIFICATION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",), tuning_space={"n_estimators": [100, 300], "max_depth": [3, 6], "learning_rate": [0.05, 0.1]}, predict_proba_fn=xgb_proba),
+        ModelDefinition("lightgbm", (ProblemType.CLASSIFICATION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",), tuning_space={"n_estimators": [100, 300], "num_leaves": [15, 31], "learning_rate": [0.05, 0.1]}, predict_proba_fn=lgbm_proba),
+        ModelDefinition("decision_tree", (ProblemType.CLASSIFICATION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"max_depth": [None, 10, 20], "min_samples_split": [2, 5]}, predict_proba_fn=dtree_proba),
+        ModelDefinition("svm", (ProblemType.CLASSIFICATION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"C": [0.1, 1.0, 10.0], "kernel": ["linear", "rbf"]}, predict_proba_fn=svm_proba),
+        ModelDefinition("knn", (ProblemType.CLASSIFICATION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"n_neighbors": [3, 5, 7]}, predict_proba_fn=knn_proba),
         ModelDefinition("naive_bayes", (ProblemType.CLASSIFICATION,), "naive_bayes", nb_train, nb_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=nb_proba),
         ModelDefinition("neural_network", (ProblemType.CLASSIFICATION,), "neural_network", mlp_train, mlp_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=mlp_proba),
     ]
@@ -432,12 +433,12 @@ def _regression_registry() -> list[ModelDefinition]:
     return [
         ModelDefinition("baseline", (ProblemType.REGRESSION,), "baseline", baseline_train, baseline_predict, _TABULAR_VALIDATION_STRATEGIES),
         ModelDefinition("linear_regression", (ProblemType.REGRESSION,), "linear", linreg_train, linreg_predict, _TABULAR_VALIDATION_STRATEGIES),
-        ModelDefinition("random_forest", (ProblemType.REGRESSION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES),
-        ModelDefinition("xgboost", (ProblemType.REGRESSION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",)),
-        ModelDefinition("lightgbm", (ProblemType.REGRESSION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",)),
-        ModelDefinition("decision_tree", (ProblemType.REGRESSION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES),
-        ModelDefinition("svm", (ProblemType.REGRESSION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES),
-        ModelDefinition("knn", (ProblemType.REGRESSION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES),
+        ModelDefinition("random_forest", (ProblemType.REGRESSION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"n_estimators": [100, 300], "max_depth": [None, 20], "min_samples_split": [2, 5]}),
+        ModelDefinition("xgboost", (ProblemType.REGRESSION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",), tuning_space={"n_estimators": [100, 300], "max_depth": [3, 6], "learning_rate": [0.05, 0.1]}),
+        ModelDefinition("lightgbm", (ProblemType.REGRESSION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",), tuning_space={"n_estimators": [100, 300], "num_leaves": [15, 31], "learning_rate": [0.05, 0.1]}),
+        ModelDefinition("decision_tree", (ProblemType.REGRESSION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"max_depth": [None, 10, 20], "min_samples_split": [2, 5]}),
+        ModelDefinition("svm", (ProblemType.REGRESSION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"C": [0.1, 1.0, 10.0], "kernel": ["linear", "rbf"]}),
+        ModelDefinition("knn", (ProblemType.REGRESSION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES, tuning_space={"n_neighbors": [3, 5, 7]}),
         ModelDefinition("neural_network", (ProblemType.REGRESSION,), "neural_network", mlp_train, mlp_predict, _TABULAR_VALIDATION_STRATEGIES),
     ]
 

@@ -8,6 +8,8 @@ only ever returns aggregated stats - never raw rows.
 """
 from __future__ import annotations
 
+from collections import Counter
+import re
 from typing import Optional
 
 import pandas as pd
@@ -28,6 +30,7 @@ NEAR_CONSTANT_THRESHOLD = 0.99
 ID_LIKE_UNIQUE_RATIO = 0.98
 MAX_CATEGORICAL_TARGET_CARDINALITY = 20
 MIN_ROWS_FOR_OUTLIER_CHECK = 4
+TEXT_AVG_LENGTH_THRESHOLD = 25
 
 
 def _looks_like_datetime(series: pd.Series, sample_size: int = 20) -> bool:
@@ -46,6 +49,13 @@ def _looks_like_datetime(series: pd.Series, sample_size: int = 20) -> bool:
 def _looks_like_numeric_text(series: pd.Series, sample_size: int = 20) -> bool:
     if series.dtype != object:
         return False
+
+
+def _looks_like_text(series: pd.Series) -> bool:
+    if series.dtype != object:
+        return False
+    non_null = series.dropna().astype(str)
+    return not non_null.empty and non_null.str.len().mean() >= TEXT_AVG_LENGTH_THRESHOLD
     sample = series.dropna().head(sample_size)
     if sample.empty:
         return False
@@ -56,13 +66,17 @@ def _looks_like_numeric_text(series: pd.Series, sample_size: int = 20) -> bool:
         return False
 
 
-def _infer_kind(series: pd.Series) -> ColumnKind:
+def _infer_kind(series: pd.Series, target_column: Optional[str] = None) -> ColumnKind:
     if pd.api.types.is_bool_dtype(series):
         return ColumnKind.BOOLEAN
     if pd.api.types.is_datetime64_any_dtype(series) or _looks_like_datetime(series):
         return ColumnKind.DATETIME
     if pd.api.types.is_numeric_dtype(series):
         return ColumnKind.NUMERICAL
+    if target_column is not None and series.name == target_column:
+        return ColumnKind.CATEGORICAL
+    if _looks_like_text(series):
+        return ColumnKind.TEXT
     return ColumnKind.CATEGORICAL
 
 
@@ -90,8 +104,23 @@ def _datetime_range(series: pd.Series) -> Optional[dict]:
     }
 
 
-def _build_column_profile(series: pd.Series, row_count: int) -> ColumnProfile:
-    kind = _infer_kind(series)
+def _text_stats(series: pd.Series) -> Optional[dict]:
+    values = series.dropna().astype(str)
+    if values.empty:
+        return None
+    tokens = [token.lower() for value in values for token in re.findall(r"[A-Za-z0-9']+", value)]
+    counts = Counter(tokens)
+    return {
+        "vocab_size": len(counts),
+        "avg_length": round(float(values.str.len().mean()), 2),
+        "top_tokens": [token for token, _count in counts.most_common(10)],
+    }
+
+
+def _build_column_profile(
+    series: pd.Series, row_count: int, target_column: Optional[str] = None
+) -> ColumnProfile:
+    kind = _infer_kind(series, target_column=target_column)
     missing_count = int(series.isna().sum())
     unique_count = int(series.nunique(dropna=True))
     non_missing = row_count - missing_count
@@ -114,10 +143,11 @@ def _build_column_profile(series: pd.Series, row_count: int) -> ColumnProfile:
         is_near_constant=is_near_constant,
         numeric_stats=_numeric_stats(series) if kind == ColumnKind.NUMERICAL else None,
         datetime_range=_datetime_range(series) if kind == ColumnKind.DATETIME else None,
+        text_stats=_text_stats(series) if kind == ColumnKind.TEXT else None,
     )
 
 
-def profile_dataset(df: pd.DataFrame) -> DatasetProfile:
+def profile_dataset(df: pd.DataFrame, target_column: Optional[str] = None) -> DatasetProfile:
     """Row/column counts, per-column dtype/cardinality/missingness, duplicate
     rows, and constant/near-constant column detection. Deterministic, pandas-only.
     """
@@ -125,7 +155,7 @@ def profile_dataset(df: pd.DataFrame) -> DatasetProfile:
     row_count = int(len(df))
 
     columns: list[ColumnProfile] = [
-        _build_column_profile(df[col], row_count) for col in all_cols
+        _build_column_profile(df[col], row_count, target_column=target_column) for col in all_cols
     ]
 
     duplicate_row_count = int(df.duplicated().sum()) if row_count else 0
@@ -138,6 +168,7 @@ def profile_dataset(df: pd.DataFrame) -> DatasetProfile:
         duplicate_row_pct=round((duplicate_row_count / row_count) * 100, 2) if row_count else 0.0,
         numerical_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.NUMERICAL],
         categorical_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.CATEGORICAL],
+        text_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.TEXT],
         datetime_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.DATETIME],
         boolean_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.BOOLEAN],
         constant_columns=[c.name for c in columns if c.is_constant],
@@ -417,7 +448,11 @@ def analyze_data_quality(
         col_profile = by_name.get(col)
         if col_profile is None:
             continue
-        if col_profile.unique_pct >= ID_LIKE_UNIQUE_RATIO * 100 and profile.row_count > 1:
+        if (
+            col_profile.inferred_kind != ColumnKind.TEXT
+            and col_profile.unique_pct >= ID_LIKE_UNIQUE_RATIO * 100
+            and profile.row_count > 1
+        ):
             suspicious_columns.append(col)
             issues.append(
                 DataQualityIssue(
