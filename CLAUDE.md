@@ -32,8 +32,7 @@ AutoGluon requires Python <=3.11; this project targets 3.11 for that reason.
 Run (CLI):
 ```
 .venv\Scripts\python main.py --data sample_data\churn_classification.csv ^
-    --description "Predict which customers will churn next month" ^
-    --sensitive-columns customer_name
+    --description "Predict which customers will churn next month"
 ```
 
 Run (Web UI - FastAPI backend + React frontend):
@@ -150,8 +149,10 @@ pool, still single-machine:
 - Structured JSON logging (`tools/logging_config.py`, `configure_logging()`).
 - `recover_interrupted_runs()` marks runs still `running` at process start as `failed` (a
   crashed process can't resume an in-flight run - see its docstring).
-- Resource limits: `MAX_UPLOAD_MB` (default 200), `PIPELINE_MAX_RUNTIME_S` (default 3600) on top
-  of each run's own `time_limit_s`.
+- Resource limits: `MAX_UPLOAD_MB` (default 200), `PIPELINE_MAX_RUNTIME_S` (default 3600). AutoML
+  training has no time budget of its own - AutoGluon's `.fit()` calls (`per_entity`/`hierarchical`
+  scope only) run unbounded; `PIPELINE_MAX_RUNTIME_S` is the only backstop, and it's cooperative
+  (checked between pipeline nodes), so it can't interrupt a `.fit()` call already in progress.
 - `tools/file_cleanup.py` - background loop (`CLEANUP_INTERVAL_S`, default 6h) deletes
   uploads/reports/AutoGluon model dirs older than `FILE_RETENTION_HOURS` (default 7 days), never
   anything touched in the last hour.
@@ -159,14 +160,45 @@ pool, still single-machine:
   derived from the client filename - no path-traversal surface), failed parses are rejected with
   a 400 and the partial file deleted.
 
+## Classification improvement cycles (`tools/classification_cycle.py`)
+
+A separate, deterministic (no LLM, no AutoGluon) classification-only workflow, independent of
+the Phase 1-10 pipeline above - it does not touch `orchestration/graph.py`, `agents/planner.py`,
+or `agents/evaluator.py`. Entry point: `run_classification_cycles(df, target_column,
+feature_columns, config=None)`.
+
+- One-time stratified `TRAIN`/`VALIDATION`/`TEST` split (`tools/splitting.py::split_train_val_test`)
+  - `TEST` is carved off once and never touched again until the final evaluation step; every
+  improvement cycle only ever sees `TRAIN`/`VALIDATION`, so model selection never uses `TEST`.
+- Up to `max_cycles` (default 3) controlled improvement cycles: cycle 1 trains every available
+  classification candidate from `tools/model_registry.py` with default hyperparameters; cycles 2-3
+  apply a deterministic, data-driven adjustment (class-weight balancing and/or minority
+  oversampling when the target is imbalanced, otherwise a small fixed hyperparameter variant) -
+  never a blind identical retrain.
+- Stops early the moment any candidate's validation metrics satisfy every configured
+  `acceptance_criteria` threshold (AND semantics - one passing metric never overrides a failing
+  required one); otherwise runs all `max_cycles` and returns `status: "threshold_not_met"`.
+- Best model is selected by `selection_metric` on **validation** metrics across *all* cycles (not
+  just the last), then evaluated once, separately, on the fixed `TEST` set.
+- TECHNICAL retries (`tools/technical_retry.py`) - transient failures (timeout/connection/I/O) -
+  are completely separate from model-improvement cycles: a technical retry never advances the
+  cycle counter, and a permanent failure (`PermanentTrainingError` - missing target column,
+  invalid/insufficient data, unsupported model) is never retried at all.
+- See `tools/evaluation.py::compute_classification_metrics_detailed` for the metric set
+  (confusion matrix, per-class precision/recall/f1, PR-AUC, configurable multiclass ROC-AUC
+  strategy) and `tests/test_classification_cycle.py` for the full behavioral contract.
+
 ## Known limitations (v1)
 
 - Forecasting defaults to regression over lag/rolling/date features (pooled/single_entity/
   per_entity); `autogluon.timeseries` is only pulled in for `hierarchical`.
 - `hierarchical` forecasting is univariate (target + time + entity only) - no other covariates.
 - `per_entity` capped at 25 entities/run; skipped entities are reported, not silently dropped.
-- PII handling is a manual column allowlist/denylist supplied at run time - no automated PII
-  detection.
+- No PII/sensitive-column exclusion mechanism - a manual denylist used to exist but was removed
+  because it silently dropped denylisted columns from training entirely (not just from the LLM
+  prompt), which could cost a non-technical user significant model quality without them
+  realizing why. All columns' names/dtypes/aggregated stats reach the LLM; raw row values never
+  do (see tests/test_llm_safety.py).
 - Cancellation is cooperative: a run inside a blocking call (`.fit()`, an LLM request) finishes
   that call before a cancel takes effect.
 - Report output is HTML only (no PDF/DOCX, to avoid native deps like WeasyPrint's GTK on

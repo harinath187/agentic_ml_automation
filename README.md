@@ -22,8 +22,7 @@ AutoGluon requires Python <=3.11; this project targets 3.11 for that reason.
 CLI:
 ```
 .venv\Scripts\python main.py --data sample_data\churn_classification.csv ^
-    --description "Predict which customers will churn next month" ^
-    --sensitive-columns customer_name
+    --description "Predict which customers will churn next month"
 ```
 
 Web UI (FastAPI backend + React frontend):
@@ -267,8 +266,11 @@ machine, no external services, per the project's deliberate scope (see
 - **Resource/time limits**: an upload size cap (`MAX_UPLOAD_MB`, default
   200MB, enforced while streaming to disk); the bounded worker
   pool/queue above; and an outer per-run wall-clock timeout
-  (`PIPELINE_MAX_RUNTIME_S`, default 3600s) on top of each run's own
-  AutoML `time_limit_s`.
+  (`PIPELINE_MAX_RUNTIME_S`, default 3600s). AutoML training itself has no
+  time budget - AutoGluon's `.fit()` calls (per_entity/hierarchical scope
+  only) run unbounded, so this outer timeout is the only backstop, and even
+  it can't interrupt a single `.fit()` call already in progress
+  (cancellation is cooperative, checked only between pipeline nodes).
 - **File cleanup** (`tools/file_cleanup.py`): a background loop
   (`CLEANUP_INTERVAL_S`, default every 6h) deletes uploads/reports/AutoGluon
   model directories older than `FILE_RETENTION_HOURS` (default 7 days),
@@ -358,8 +360,12 @@ colliding on the same filename.
 - `per_entity` is capped at 25 entities per run (each is a full AutoML fit);
   entities beyond the cap or with too little data are skipped and listed in
   the report/API response, not silently dropped.
-- PII handling is a manual column allowlist/denylist you supply at run time
-  (no automated PII detection).
+- No PII/sensitive-column exclusion mechanism - a manual denylist used to
+  exist but was removed because it silently excluded denylisted columns from
+  training entirely (not just from the LLM prompt), risking real model
+  quality loss for a non-technical user who didn't realize that's what it
+  did. Every column's name/dtype/aggregated stats reach the LLM; raw row
+  values never do (see `tests/test_llm_safety.py`).
 - Local single-user use only; no auth, no hosted/multi-tenant deployment.
   Phase 9 made the single process itself more robust (persistent storage,
   bounded concurrency, cancellation, structured logging - see "Production

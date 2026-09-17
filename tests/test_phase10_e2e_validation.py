@@ -91,7 +91,7 @@ def test_classification_full_pipeline_upload_to_report(classification_df, monkey
 
     result = run_pipeline(
         file_path=str(csv_path), business_description="Predict churn",
-        sensitive_columns=["customer_name"], max_retries=1, time_limit_s=15,
+        max_retries=1,
     )
 
     _assert_full_node_chain_present(result)
@@ -120,7 +120,7 @@ def test_regression_full_pipeline_upload_to_report(regression_df, monkeypatch, t
 
     result = run_pipeline(
         file_path=str(csv_path), business_description="Predict house price",
-        max_retries=1, time_limit_s=15,
+        max_retries=1,
     )
 
     _assert_full_node_chain_present(result)
@@ -142,7 +142,7 @@ def test_simple_timeseries_full_pipeline_upload_to_report(simple_timeseries_df, 
 
     result = run_pipeline(
         file_path=str(csv_path), business_description="Forecast daily sales (no seasonality)",
-        max_retries=1, time_limit_s=15,
+        max_retries=1,
     )
 
     _assert_full_node_chain_present(result)
@@ -166,7 +166,7 @@ def test_seasonal_timeseries_full_pipeline_upload_to_report(forecasting_df, monk
 
     result = run_pipeline(
         file_path=str(csv_path), business_description="Forecast daily sales (weekly seasonality)",
-        max_retries=1, time_limit_s=15,
+        max_retries=1,
     )
 
     _assert_full_node_chain_present(result)
@@ -193,7 +193,7 @@ def test_multi_entity_timeseries_full_pipeline_upload_to_report(multi_entity_for
 
     result = run_pipeline(
         file_path=str(csv_path), business_description="Forecast daily sales across all stores",
-        max_retries=1, time_limit_s=15,
+        max_retries=1,
     )
 
     _assert_full_node_chain_present(result)
@@ -251,7 +251,7 @@ def test_llm_cannot_override_deterministic_ranking_end_to_end(regression_df, mon
     from orchestration.graph import run_pipeline
 
     result = run_pipeline(
-        file_path=str(csv_path), business_description="Predict house price", max_retries=0, time_limit_s=15,
+        file_path=str(csv_path), business_description="Predict house price", max_retries=0,
     )
 
     real_winner = result["metrics"]["model_comparison"]["winner"]
@@ -300,7 +300,7 @@ def test_llm_cannot_invent_metrics_end_to_end(regression_df, monkeypatch, tmp_pa
     from orchestration.graph import run_pipeline
 
     result = run_pipeline(
-        file_path=str(csv_path), business_description="Predict house price", max_retries=0, time_limit_s=15,
+        file_path=str(csv_path), business_description="Predict house price", max_retries=0,
     )
 
     cited = result["recommendation"].cited_metrics
@@ -339,7 +339,7 @@ def test_failed_candidate_model_does_not_crash_the_pipeline(regression_df, monke
     from orchestration.graph import run_pipeline
 
     result = run_pipeline(
-        file_path=str(csv_path), business_description="Predict house price", max_retries=0, time_limit_s=15,
+        file_path=str(csv_path), business_description="Predict house price", max_retries=0,
     )
 
     assert result["needs_clarification"] is False
@@ -371,7 +371,7 @@ def test_report_contains_consistent_metrics_for_every_candidate(regression_df, m
     from orchestration.graph import run_pipeline
 
     result = run_pipeline(
-        file_path=str(csv_path), business_description="Predict house price", max_retries=0, time_limit_s=15,
+        file_path=str(csv_path), business_description="Predict house price", max_retries=0,
     )
 
     html = open(result["report_path"], encoding="utf-8").read()
@@ -406,7 +406,7 @@ def test_pipeline_state_accumulates_correctly_node_by_node(classification_df):
     """
     from orchestration.graph import node_detect_problem, node_ingest, node_profile_data, node_quality_analysis
 
-    csv_path_state = {"file_path": None, "sensitive_columns": ["customer_name"]}
+    csv_path_state = {"file_path": None}
     # node_ingest reads the file - write the fixture df to a real temp file.
     import tempfile
     from pathlib import Path
@@ -432,4 +432,3 @@ def test_pipeline_state_accumulates_correctly_node_by_node(classification_df):
         assert key in state and state[key] is not None
     # the original input state survived untouched all the way through
     assert state["file_path"] == csv_path_state["file_path"]
-    assert state["sensitive_columns"] == ["customer_name"]

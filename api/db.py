@@ -95,9 +95,7 @@ def init_db() -> None:
                 dataset_id TEXT,
                 file_path TEXT NOT NULL,
                 business_description TEXT NOT NULL,
-                sensitive_columns_json TEXT NOT NULL DEFAULT '[]',
                 max_retries INTEGER NOT NULL,
-                time_limit_s INTEGER NOT NULL,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -167,9 +165,7 @@ def create_run(
     dataset_id: Optional[str],
     file_path: str,
     business_description: str,
-    sensitive_columns: list[str],
     max_retries: int,
-    time_limit_s: int,
 ) -> None:
     """Inserts a new run row with status=queued. The caller (api/job_queue.py
     via api/run_store.py) is responsible for actually submitting the work -
@@ -179,18 +175,16 @@ def create_run(
         conn.execute(
             """
             INSERT INTO runs (
-                run_id, dataset_id, file_path, business_description, sensitive_columns_json,
-                max_retries, time_limit_s, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_id, dataset_id, file_path, business_description,
+                max_retries, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
                 dataset_id,
                 file_path,
                 business_description,
-                json.dumps(sensitive_columns or []),
                 max_retries,
-                time_limit_s,
                 QUEUED,
                 now_iso(),
             ),
@@ -199,9 +193,9 @@ def create_run(
 
 def update_run(run_id: str, **fields: Any) -> None:
     """Generic partial update - only columns present in `fields` are
-    touched. `result_json`/`sensitive_columns_json` are accepted as already-
-    JSON-encoded strings; pass plain dicts/lists via update_run_result()
-    instead if encoding is still needed."""
+    touched. `result_json` is accepted as an already-JSON-encoded string;
+    pass a plain dict via update_run_result() instead if encoding is still
+    needed."""
     if not fields:
         return
     columns = ", ".join(f"{key} = ?" for key in fields)
@@ -283,7 +277,6 @@ def recover_interrupted_runs() -> list[str]:
 
 def _run_row_to_dict(row: sqlite3.Row) -> dict:
     record = dict(row)
-    record["sensitive_columns"] = json.loads(record.pop("sensitive_columns_json") or "[]")
     result_json = record.pop("result_json", None)
     record["result"] = json.loads(result_json) if result_json else None
     plan_json = record.pop("plan_json", None)

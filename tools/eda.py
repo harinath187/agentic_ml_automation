@@ -1,17 +1,14 @@
 """Exploratory Data Analysis tool. Returns aggregated summaries only, never raw rows."""
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 import pandas as pd
 
 from tools.cleaning import NUMERIC_TEXT_MIN_PARSE_RATIO, _parse_numeric_text
 
 
-def run_eda(df: pd.DataFrame, sensitive_columns: Optional[list[str]] = None) -> dict:
-    sensitive = set(sensitive_columns or [])
-    cols = [c for c in df.columns if c not in sensitive]
+def run_eda(df: pd.DataFrame) -> dict:
+    cols = list(df.columns)
     working = df[cols].copy()
 
     # Coerce messy-but-mostly-numeric text columns (e.g. "total_sqft" mixing

@@ -27,7 +27,6 @@ def train_models(
     target_column: str,
     problem_type: str,
     time_column: Optional[str] = None,
-    time_limit: int = 60,
 ) -> dict:
     from autogluon.tabular import TabularPredictor
 
@@ -50,7 +49,7 @@ def train_models(
         path=str(run_dir),
         verbosity=0,
     )
-    predictor.fit(train_data=train, time_limit=time_limit)
+    predictor.fit(train_data=train)
 
     # Deferred imports: keep automl_training.py's module-load cost limited to
     # the AutoGluon dependency it always needed, matching the existing
@@ -128,7 +127,6 @@ def train_hierarchical_timeseries(
     entity_column: str,
     target_column: str,
     time_column: str,
-    time_limit: int = 60,
     prediction_length: Optional[int] = None,
 ) -> dict:
     """Joint forecasting across all entities via AutoGluon TimeSeriesPredictor,
@@ -158,7 +156,7 @@ def train_hierarchical_timeseries(
         path=str(run_dir),
         verbosity=0,
     )
-    predictor.fit(train_data, time_limit=time_limit)
+    predictor.fit(train_data)
 
     leaderboard = predictor.leaderboard(test_data, silent=True)
     metrics: dict = {}

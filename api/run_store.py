@@ -16,25 +16,29 @@ see README's "Known limitations" for the compatibility note).
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import traceback
 import uuid
 from typing import Optional
 
-import json
-
 from api import db, job_queue
 from orchestration.graph import PipelineCancelled, run_pipeline
+from tools import report_charts
 from tools.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Phase 9: resource/time limit - an outer wall-clock backstop per run, on top
-# of time_limit_s (which only bounds a single AutoML .fit() call). Guards
-# against anything else hanging indefinitely (a stuck LLM retry loop, a slow
-# per_entity/hierarchical run with many entities) by cooperatively cancelling
-# the run the same way an explicit user cancel does - see PipelineCancelled.
+# Phase 9: resource/time limit - an outer wall-clock backstop per run. Guards
+# against anything hanging indefinitely (a stuck LLM retry loop, a slow
+# per_entity/hierarchical run with many entities, or - since AutoML training
+# calls no longer pass a time_limit to AutoGluon at all - a single .fit()
+# call that itself runs long) by cooperatively cancelling the run the same
+# way an explicit user cancel does - see PipelineCancelled. Note this is
+# still only cooperative: a run already blocked inside one AutoGluon .fit()
+# call won't actually stop until that call returns and the next node
+# boundary is reached.
 RUN_TIMEOUT_S = int(os.environ.get("PIPELINE_MAX_RUNTIME_S", "3600"))
 
 _watchdogs: dict[str, threading.Timer] = {}
@@ -65,9 +69,7 @@ def _on_watchdog_timeout(run_id: str) -> None:
 def create_run(
     file_path: str,
     business_description: str,
-    sensitive_columns: list[str],
     max_retries: int,
-    time_limit_s: int,
     dataset_id: Optional[str] = None,
 ) -> str:
     queue = job_queue.get_default_queue()
@@ -82,9 +84,7 @@ def create_run(
         dataset_id=dataset_id,
         file_path=file_path,
         business_description=business_description,
-        sensitive_columns=sensitive_columns,
         max_retries=max_retries,
-        time_limit_s=time_limit_s,
     )
     logger.info("run_queued", extra={"run_id": run_id, "dataset_id": dataset_id})
 
@@ -95,9 +95,7 @@ def create_run(
             run_id,
             file_path,
             business_description,
-            sensitive_columns,
             max_retries,
-            time_limit_s,
         )
     except job_queue.QueueFullError:
         db.update_run(run_id, status=db.FAILED, error="Too many runs already queued/in progress.", completed_at=db.now_iso())
@@ -166,8 +164,8 @@ def _on_progress(run_id: str, node_name: str, updates: dict) -> None:
     just finished, and additionally persists the ExperimentPlan the moment
     it's decided (node_validate_plan's `updates["plan"]`) - well before
     training/evaluation finish - so a client polling GET /api/runs/{run_id}
-    mid-run can already show the user what the Planner decided, not just
-    which step it's on.
+    mid-run can already show the user what the Planner decided, right below
+    the run status, not just which step it's on.
     """
     fields: dict = {"current_step": node_name}
     plan = updates.get("plan")
@@ -180,16 +178,14 @@ def _execute(
     run_id: str,
     file_path: str,
     business_description: str,
-    sensitive_columns: list[str],
     max_retries: int,
-    time_limit_s: int,
     cancel_event,
 ) -> None:
     db.update_run(run_id, status=db.RUNNING, started_at=db.now_iso())
     logger.info("run_started", extra={"run_id": run_id})
 
     try:
-        _execute_inner(run_id, file_path, business_description, sensitive_columns, max_retries, time_limit_s, cancel_event)
+        _execute_inner(run_id, file_path, business_description, max_retries, cancel_event)
     finally:
         _stop_watchdog(run_id)
 
@@ -198,18 +194,14 @@ def _execute_inner(
     run_id: str,
     file_path: str,
     business_description: str,
-    sensitive_columns: list[str],
     max_retries: int,
-    time_limit_s: int,
     cancel_event,
 ) -> None:
     try:
         result = run_pipeline(
             file_path=file_path,
             business_description=business_description,
-            sensitive_columns=sensitive_columns,
             max_retries=max_retries,
-            time_limit_s=time_limit_s,
             run_id=run_id,
             cancel_event=cancel_event,
             progress_callback=lambda step, updates: _on_progress(run_id, step, updates),
@@ -225,14 +217,29 @@ def _execute_inner(
             logger.info("run_needs_clarification", extra={"run_id": run_id})
             return
 
+        plan = result["plan"]
+        dataset_profile = result.get("dataset_profile")
+        data_quality_report = result.get("data_quality_report")
+        problem_definition = result.get("problem_definition")
+        recommendation = result.get("recommendation")
         record = {
-            "plan": result["plan"].model_dump(mode="json"),
+            "plan": plan.model_dump(mode="json"),
             "eda_summary": result.get("eda_summary"),
+            "dataset_profile": dataset_profile.model_dump(mode="json") if dataset_profile else None,
+            "data_quality_report": data_quality_report.model_dump(mode="json") if data_quality_report else None,
+            "problem_definition": problem_definition.model_dump(mode="json") if problem_definition else None,
             "cleaning_log": result.get("cleaning_log"),
             "feature_log": result.get("feature_log"),
+            "feature_selection_log": result.get("feature_selection_log"),
             "split_log": result.get("split_log"),
             "metrics": result["metrics"],
             "decision": result["decision"].model_dump(mode="json"),
+            "recommendation": recommendation.model_dump(mode="json") if recommendation else None,
+            "report_charts": report_charts.build_report_charts(
+                plan.problem_type.value if plan.problem_type else None,
+                result["metrics"].get("model_comparison"),
+                result.get("chart_data"),
+            ),
         }
         experiment_record = result.get("experiment_record")
         if experiment_record is not None:

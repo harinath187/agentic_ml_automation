@@ -213,7 +213,6 @@ class DatasetProfile(BaseModel):
     boolean_columns: List[str] = Field(default_factory=list)
     constant_columns: List[str] = Field(default_factory=list)
     near_constant_columns: List[str] = Field(default_factory=list)
-    excluded_sensitive_column_count: int = 0
     columns: List[ColumnProfile] = Field(default_factory=list)
 
 

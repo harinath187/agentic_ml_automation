@@ -13,10 +13,10 @@ from tools.plan_validation import validate_plan
 from tools.profiling import analyze_data_quality, analyze_target, profile_dataset
 
 
-def _intelligence(df, sensitive_columns=None):
-    profile = profile_dataset(df, sensitive_columns=sensitive_columns)
-    target_analysis = analyze_target(df, profile, sensitive_columns=sensitive_columns)
-    quality_report = analyze_data_quality(df, profile, sensitive_columns=sensitive_columns)
+def _intelligence(df):
+    profile = profile_dataset(df)
+    target_analysis = analyze_target(df, profile)
+    quality_report = analyze_data_quality(df, profile)
     return profile, target_analysis, quality_report
 
 

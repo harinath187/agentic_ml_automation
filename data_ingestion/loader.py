@@ -5,15 +5,12 @@ This is the ONLY module that reads raw data off disk. It returns two things:
     df             - a pandas DataFrame. Stays local. Passed only to tools/*
                      (sandboxed, data-touching code). NEVER passed to an LLM.
     schema_summary - a plain dict safe to send to an LLM: column names,
-                     dtypes, missing %, aggregated stats. Sensitive columns
-                     (per the user-supplied denylist) are dropped entirely
-                     from this summary - name and stats both - before it is
-                     ever built.
+                     dtypes, missing %, aggregated stats - never raw row
+                     values (see tests/test_llm_safety.py).
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Optional
 
 import pandas as pd
 
@@ -32,20 +29,11 @@ def load_dataset(file_path: str | Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported file type: {suffix}. Use .csv, .xls, or .xlsx.")
 
 
-def extract_schema(
-    df: pd.DataFrame, sensitive_columns: Optional[Iterable[str]] = None
-) -> dict:
-    """Build an LLM-safe schema summary, excluding sensitive_columns entirely.
-
-    Sensitive columns are removed from the *output* only; the original df is
-    left untouched so downstream tools can still use them if needed for
-    processing (though the Planner Agent will never learn they exist).
-    """
-    sensitive = set(sensitive_columns or [])
-    safe_columns = [c for c in df.columns if c not in sensitive]
-
+def extract_schema(df: pd.DataFrame) -> dict:
+    """Build an LLM-safe schema summary: column names, dtypes, missing %,
+    aggregated stats - never raw row values."""
     columns_info = []
-    for col in safe_columns:
+    for col in df.columns:
         series = df[col]
         missing_pct = round(float(series.isna().mean()) * 100, 2)
         info = {
@@ -76,8 +64,7 @@ def extract_schema(
 
     return {
         "row_count": int(len(df)),
-        "column_count": len(safe_columns),
-        "excluded_sensitive_column_count": len(sensitive & set(df.columns)),
+        "column_count": len(df.columns),
         "columns": columns_info,
     }
 

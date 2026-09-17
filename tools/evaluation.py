@@ -16,9 +16,12 @@ import numpy as np
 from pydantic import BaseModel, Field
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
+    confusion_matrix,
     f1_score,
     mean_absolute_error,
     mean_squared_error,
+    precision_recall_fscore_support,
     precision_score,
     r2_score,
     recall_score,
@@ -143,6 +146,86 @@ def compute_classification_metrics(y_true, y_pred, y_proba=None) -> dict:
             metrics["roc_auc"] = float(roc_auc_score(y_true_arr, y_proba))
         except ValueError:
             pass  # e.g. degenerate probability vector - leave roc_auc unset rather than fail the candidate
+    return metrics
+
+
+def compute_classification_metrics_detailed(
+    y_true,
+    y_pred,
+    y_proba=None,
+    multiclass_roc_strategy: str = "ovr",
+) -> dict:
+    """Richer classification metric set for tools/classification_cycle.py -
+    additive alongside compute_classification_metrics() above (which stays
+    exactly as-is for tools/model_runner.py/tools/automl_training.py; this
+    function is never called from either of those).
+
+    Adds confusion_matrix, per-class precision/recall/f1, PR-AUC, and a
+    configurable multiclass ROC-AUC strategy (One-vs-Rest by default, or
+    One-vs-One) on top of the same accuracy/precision/recall/f1 base as
+    compute_classification_metrics(). `y_proba` for multiclass must be the
+    FULL per-class probability matrix (n_samples, n_classes) in the same
+    class order as `y_true`'s sorted unique labels - binary keeps accepting
+    either a 1-D positive-class-probability vector or a (n, 2) matrix.
+
+    Every metric that can fail for a data-shape reason (e.g. a class with
+    zero validation examples, a degenerate probability vector) is wrapped
+    defensively and simply omitted rather than raising - a metrics glitch
+    must never crash the candidate's whole result (same policy already used
+    throughout tools/model_runner.py).
+    """
+    y_true_arr = np.asarray(y_true)
+    y_pred_arr = np.asarray(y_pred)
+    labels = sorted(np.unique(y_true_arr).tolist())
+
+    metrics: dict = {
+        "accuracy": float(accuracy_score(y_true_arr, y_pred_arr)),
+        "precision": float(precision_score(y_true_arr, y_pred_arr, average="weighted", zero_division=0)),
+        "recall": float(recall_score(y_true_arr, y_pred_arr, average="weighted", zero_division=0)),
+        "f1": float(f1_score(y_true_arr, y_pred_arr, average="weighted", zero_division=0)),
+    }
+
+    try:
+        metrics["confusion_matrix"] = confusion_matrix(y_true_arr, y_pred_arr, labels=labels).tolist()
+    except ValueError:
+        pass
+
+    try:
+        p, r, f, _ = precision_recall_fscore_support(y_true_arr, y_pred_arr, labels=labels, average=None, zero_division=0)
+        metrics["per_class"] = {
+            str(label): {"precision": float(p[i]), "recall": float(r[i]), "f1": float(f[i])}
+            for i, label in enumerate(labels)
+        }
+    except ValueError:
+        pass
+
+    is_binary = len(labels) == 2
+    if y_proba is not None:
+        proba_arr = np.asarray(y_proba)
+        if is_binary:
+            # Accept either a 1-D positive-class vector or an (n, 2) matrix.
+            positive_proba = proba_arr[:, 1] if proba_arr.ndim == 2 else proba_arr
+            try:
+                metrics["roc_auc"] = float(roc_auc_score(y_true_arr, positive_proba))
+            except ValueError:
+                pass
+            try:
+                metrics["pr_auc"] = float(average_precision_score(y_true_arr, positive_proba))
+            except ValueError:
+                pass
+        elif proba_arr.ndim == 2 and proba_arr.shape[1] == len(labels):
+            try:
+                metrics["roc_auc"] = float(
+                    roc_auc_score(y_true_arr, proba_arr, labels=labels, multi_class=multiclass_roc_strategy, average="macro")
+                )
+            except ValueError:
+                pass  # e.g. a class missing entirely from this validation split
+            try:
+                y_true_binarized = np.stack([(y_true_arr == label).astype(int) for label in labels], axis=1)
+                metrics["pr_auc"] = float(average_precision_score(y_true_binarized, proba_arr, average="macro"))
+            except ValueError:
+                pass
+
     return metrics
 
 

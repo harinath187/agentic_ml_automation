@@ -69,8 +69,7 @@
         <th>Categorical columns</th><td>{{ dataset_profile.categorical_columns|length }}</td></tr>
     <tr><th>Datetime columns</th><td>{{ dataset_profile.datetime_columns|length }}</td>
         <th>Boolean columns</th><td>{{ dataset_profile.boolean_columns|length }}</td></tr>
-    <tr><th>Duplicate rows</th><td>{{ dataset_profile.duplicate_row_count }} ({{ dataset_profile.duplicate_row_pct }}%)</td>
-        <th>Sensitive columns excluded</th><td>{{ dataset_profile.excluded_sensitive_column_count }}</td></tr>
+    <tr><th>Duplicate rows</th><td colspan="3">{{ dataset_profile.duplicate_row_count }} ({{ dataset_profile.duplicate_row_pct }}%)</td></tr>
   </table>
   {% if dataset_profile.constant_columns or dataset_profile.near_constant_columns %}
   <p class="meta">

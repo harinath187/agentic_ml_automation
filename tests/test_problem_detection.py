@@ -9,11 +9,11 @@ from tools.problem_detection import detect_problem
 from tools.profiling import analyze_data_quality, analyze_target, profile_dataset
 
 
-def _detect(df, sensitive_columns=None):
-    profile = profile_dataset(df, sensitive_columns=sensitive_columns)
-    target_analysis = analyze_target(df, profile, sensitive_columns=sensitive_columns)
-    quality_report = analyze_data_quality(df, profile, sensitive_columns=sensitive_columns)
-    return detect_problem(df, profile, target_analysis, quality_report, sensitive_columns=sensitive_columns)
+def _detect(df):
+    profile = profile_dataset(df)
+    target_analysis = analyze_target(df, profile)
+    quality_report = analyze_data_quality(df, profile)
+    return detect_problem(df, profile, target_analysis, quality_report)
 
 
 # --- classification --------------------------------------------------------
@@ -45,7 +45,7 @@ def test_classification_on_ambiguous_multi_feature_dataset_defers_to_planner(cla
     # tenure_months/monthly_charge/support_calls are all plausible regression
     # or classification candidates in their own right, so the deterministic
     # layer correctly refuses to guess rather than assert "churn" outright.
-    definition = _detect(classification_df, sensitive_columns=["customer_name"])
+    definition = _detect(classification_df)
     assert definition.confidence in ("low", "medium")
     if definition.detected_problem_type is not None:
         assert definition.target_column is None or definition.confidence != "high"

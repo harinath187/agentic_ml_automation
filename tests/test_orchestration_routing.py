@@ -123,7 +123,7 @@ def test_node_filter_entity_raises_when_value_not_found():
 
 def test_node_profile_data_populates_dataset_profile():
     df = pd.DataFrame({"store_id": ["a", "a", "b"], "sales": [1, 2, 3]})
-    result = node_profile_data({"df": df, "sensitive_columns": []})
+    result = node_profile_data({"df": df})
     assert "dataset_profile" in result
     assert isinstance(result["dataset_profile"], DatasetProfile)
     assert result["dataset_profile"].row_count == 3
@@ -131,8 +131,8 @@ def test_node_profile_data_populates_dataset_profile():
 
 def test_node_quality_analysis_populates_target_and_quality_reports():
     df = pd.DataFrame({"store_id": ["a", "a", "b"], "sales": [1, 2, 3]})
-    profile_result = node_profile_data({"df": df, "sensitive_columns": []})
-    state = {"df": df, "sensitive_columns": [], **profile_result}
+    profile_result = node_profile_data({"df": df})
+    state = {"df": df, **profile_result}
 
     result = node_quality_analysis(state)
 
@@ -147,8 +147,8 @@ def test_node_quality_analysis_excludes_unambiguous_target_from_name_based_leaka
     # check doesn't flag the target against itself (see tools/profiling.py's
     # likely_target_column param).
     df = pd.DataFrame({"Glucose": list(range(20)), "Outcome": [0, 1] * 10})
-    profile_result = node_profile_data({"df": df, "sensitive_columns": []})
-    state = {"df": df, "sensitive_columns": [], **profile_result}
+    profile_result = node_profile_data({"df": df})
+    state = {"df": df, **profile_result}
 
     result = node_quality_analysis(state)
 
@@ -162,7 +162,6 @@ def _intelligence_state(df: pd.DataFrame) -> dict:
     quality_report = analyze_data_quality(df, profile)
     return {
         "df": df,
-        "sensitive_columns": [],
         "dataset_profile": profile,
         "target_analysis": target_analysis,
         "data_quality_report": quality_report,
@@ -269,7 +268,7 @@ def test_node_train_uses_only_plan_requested_candidates():
         time_column=None,
         candidate_model_families=["baseline", "logistic_regression"],
     )
-    state = {"plan": plan, "train_df": train_df, "test_df": test_df, "time_limit_s": 10}
+    state = {"plan": plan, "train_df": train_df, "test_df": test_df}
 
     result = node_train(state)
 
@@ -287,7 +286,7 @@ def test_node_train_falls_back_to_default_when_nothing_matches(monkeypatch):
         time_column=None,
         candidate_model_families=["TotallyMadeUpModelName"],
     )
-    state = {"plan": plan, "train_df": train_df, "test_df": test_df, "time_limit_s": 10}
+    state = {"plan": plan, "train_df": train_df, "test_df": test_df}
 
     result = node_train(state)
 

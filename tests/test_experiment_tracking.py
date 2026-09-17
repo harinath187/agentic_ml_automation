@@ -67,9 +67,7 @@ def _base_kwargs(tmp_path, state: dict) -> dict:
         started_perf=0.0,
         file_path=str(dataset),
         business_description="predict something",
-        sensitive_columns=["name"],
         max_retries=2,
-        time_limit_s=60,
         state=state,
     )
 
@@ -179,7 +177,6 @@ def _sample_record(run_id: str = "run-1") -> et.ExperimentRecord:
         file_path="data.csv",
         business_description="test",
         max_retries=2,
-        time_limit_s=60,
     )
 
 

@@ -137,9 +137,7 @@ async def upload_dataset(file: UploadFile = File(...)) -> dict:
 class RunRequest(BaseModel):
     dataset_id: str
     business_description: str
-    sensitive_columns: list[str] = []
     max_retries: int = 2
-    time_limit_s: int = 60
 
 
 @app.post("/api/runs")
@@ -152,9 +150,7 @@ async def start_run(req: RunRequest) -> dict:
         run_id = run_store.create_run(
             file_path=dataset["stored_path"],
             business_description=req.business_description,
-            sensitive_columns=req.sensitive_columns,
             max_retries=req.max_retries,
-            time_limit_s=req.time_limit_s,
             dataset_id=req.dataset_id,
         )
     except job_queue.QueueFullError as exc:

@@ -20,13 +20,6 @@ def test_profile_dataset_basic_counts(classification_df):
     assert set(profile.column_names) == set(classification_df.columns)
 
 
-def test_profile_dataset_excludes_sensitive_columns(classification_df):
-    profile = profile_dataset(classification_df, sensitive_columns=["customer_name"])
-    assert "customer_name" not in profile.column_names
-    assert profile.column_count == len(classification_df.columns) - 1
-    assert profile.excluded_sensitive_column_count == 1
-
-
 def test_profile_dataset_classifies_column_kinds(classification_df):
     profile = profile_dataset(classification_df)
     assert "tenure_months" in profile.numerical_columns
@@ -94,8 +87,8 @@ def test_profile_dataset_handles_empty_dataframe():
 
 
 def test_analyze_target_finds_binary_classification_candidate(classification_df):
-    profile = profile_dataset(classification_df, sensitive_columns=["customer_name"])
-    analysis = analyze_target(classification_df, profile, sensitive_columns=["customer_name"])
+    profile = profile_dataset(classification_df)
+    analysis = analyze_target(classification_df, profile)
     names = [c.name for c in analysis.candidate_targets]
     assert "churn" in names
     churn_candidate = next(c for c in analysis.candidate_targets if c.name == "churn")
@@ -275,16 +268,6 @@ def test_analyze_data_quality_does_not_flag_a_plausible_minimum_as_sentinel():
     report = analyze_data_quality(df, profile)
 
     assert "amount" not in report.possible_sentinel_missing
-
-
-def test_analyze_data_quality_excludes_sensitive_columns(classification_df):
-    report = analyze_data_quality(
-        classification_df,
-        profile_dataset(classification_df, sensitive_columns=["customer_name"]),
-        sensitive_columns=["customer_name"],
-    )
-    assert "customer_name" not in report.missing_value_columns
-    assert "customer_name" not in report.suspicious_columns
 
 
 def test_analyze_data_quality_perfect_score_for_clean_data():

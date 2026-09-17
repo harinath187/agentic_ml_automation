@@ -24,13 +24,13 @@ class _FakePlan(BaseModel):
 
 
 def test_on_progress_always_records_current_step():
-    db.create_run("r1", None, "uploads/d.csv", "desc", [], 2, 60)
+    db.create_run("r1", None, "uploads/d.csv", "desc", 2)
     run_store._on_progress("r1", "clean", {})
     assert db.get_run("r1")["current_step"] == "clean"
 
 
 def test_on_progress_persists_plan_when_present_in_updates():
-    db.create_run("r1", None, "uploads/d.csv", "desc", [], 2, 60)
+    db.create_run("r1", None, "uploads/d.csv", "desc", 2)
     run_store._on_progress("r1", "validate_plan", {"plan": _FakePlan(), "needs_clarification": False})
 
     row = db.get_run("r1")
@@ -39,7 +39,7 @@ def test_on_progress_persists_plan_when_present_in_updates():
 
 
 def test_on_progress_does_not_touch_plan_when_absent_from_updates():
-    db.create_run("r1", None, "uploads/d.csv", "desc", [], 2, 60)
+    db.create_run("r1", None, "uploads/d.csv", "desc", 2)
     run_store._on_progress("r1", "validate_plan", {"plan": _FakePlan(), "needs_clarification": False})
     run_store._on_progress("r1", "eda", {"eda_summary": {}})  # later step, no plan key
 
@@ -47,7 +47,7 @@ def test_on_progress_does_not_touch_plan_when_absent_from_updates():
 
 
 def test_row_to_response_surfaces_plan_only_while_running():
-    db.create_run("r1", None, "uploads/d.csv", "desc", [], 2, 60)
+    db.create_run("r1", None, "uploads/d.csv", "desc", 2)
     db.update_run("r1", status=db.RUNNING, started_at=db.now_iso())
     run_store._on_progress("r1", "validate_plan", {"plan": _FakePlan()})
 
@@ -60,7 +60,7 @@ def test_row_to_response_surfaces_plan_only_while_running():
 
 
 def test_row_to_response_running_without_plan_yet_has_no_plan_key():
-    db.create_run("r1", None, "uploads/d.csv", "desc", [], 2, 60)
+    db.create_run("r1", None, "uploads/d.csv", "desc", 2)
     db.update_run("r1", status=db.RUNNING, started_at=db.now_iso())
     run_store._on_progress("r1", "ingest", {"df": None, "schema_summary": {}})
 

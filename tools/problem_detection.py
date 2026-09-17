@@ -34,7 +34,6 @@ def detect_problem(
     profile: DatasetProfile,
     target_analysis: TargetAnalysis,
     quality_report: DataQualityReport,
-    sensitive_columns: Optional[list[str]] = None,
 ) -> ProblemDefinition:
     """Deterministic classification/regression/forecasting detection, plus
     time-series signals (datetime column, item/entity column, frequency,

@@ -21,8 +21,18 @@ Three things come out of every run (run_candidates):
 Every candidate produces a result, success or not - a missing dependency, an
 unsupported validation strategy, or a training exception never aborts the
 run; it just narrows metrics["models"]/the ranking to whatever actually
-trained (never less than would exist without Phase 3, since AutoGluon is
-still one of the candidates unless the plan excluded it).
+trained.
+
+Note: `_run_automl`/the `model_family == "automl"` branch below has no
+candidates to run against currently - tools/model_registry.py's REGISTRY
+registers no `automl`-family ModelDefinition for classification/regression
+(see that module's docstring), so `resolve_candidates()`/`default_candidates()`
+never hand this function one. AutoGluon only trains via the separate
+per_entity (tools/automl_training.train_models, called directly per entity
+by orchestration/graph.py) and hierarchical (train_hierarchical_timeseries)
+scope strategies, which bypass run_candidates entirely. The branch is kept
+so a future `automl`-family registry entry (e.g. for the pooled path) would
+work without further changes here.
 """
 from __future__ import annotations
 
@@ -56,7 +66,6 @@ def run_candidates(
     problem_type: ProblemType,
     validation_strategy: Optional[ValidationStrategyType] = None,
     validation_folds: Optional[int] = None,
-    automl_time_limit: int = 60,
     evaluation_metrics: Optional[list[str]] = None,
 ) -> tuple[dict, dict]:
     """Returns (metrics, chart_data) - see module docstring for why chart_data
@@ -76,7 +85,7 @@ def run_candidates(
     for definition in candidates:
         if definition.model_family == "automl":
             results, best_model, model_path = _run_automl(
-                definition, train_df, test_df, target_column, time_column, problem_type, automl_time_limit
+                definition, train_df, test_df, target_column, time_column, problem_type
             )
             for result in results:
                 model_results.append(result)
@@ -436,7 +445,6 @@ def _run_automl(
     target_column: str,
     time_column: Optional[str],
     problem_type: ProblemType,
-    time_limit: int,
 ) -> tuple[list[ModelResult], Optional[str], Optional[str]]:
     """Expands AutoGluon's internal leaderboard into one ModelResult per
     underlying model, calling tools/automl_training.train_models exactly as
@@ -460,7 +468,6 @@ def _run_automl(
             target_column=target_column,
             problem_type=problem_type.value,
             time_column=time_column,
-            time_limit=time_limit,
         )
     except Exception as exc:  # noqa: BLE001 - AutoGluon failing must not sink other candidates
         return (

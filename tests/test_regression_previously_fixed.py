@@ -78,7 +78,7 @@ def test_sqlite_experiment_store_does_not_leak_connections_that_block_cleanup():
         for i in range(20):
             record = experiment_tracking.ExperimentRecord(
                 run_id=f"r{i}", created_at=experiment_tracking.now_iso(),
-                file_path="x.csv", business_description="t", max_retries=1, time_limit_s=10,
+                file_path="x.csv", business_description="t", max_retries=1,
             )
             store.save(record)
         store.get("r5")
@@ -152,7 +152,7 @@ def test_concurrent_pipeline_runs_produce_distinct_report_files(regression_df, t
         def run_one(run_id):
             result = run_pipeline(
                 file_path=str(csv_path), business_description="Predict house price",
-                max_retries=0, time_limit_s=15, run_id=run_id,
+                max_retries=0, run_id=run_id,
             )
             with lock:
                 results[run_id] = result

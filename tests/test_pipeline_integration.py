@@ -69,9 +69,7 @@ def test_classification_pipeline_end_to_end(classification_df, monkeypatch, tmp_
     result = run_pipeline(
         file_path=str(csv_path),
         business_description="Predict customer churn",
-        sensitive_columns=["customer_name"],
         max_retries=1,
-        time_limit_s=15,
     )
 
     assert result["decision"].best_model is not None
@@ -98,7 +96,6 @@ def test_regression_pipeline_end_to_end(regression_df, monkeypatch, tmp_path):
         file_path=str(csv_path),
         business_description="Predict house price",
         max_retries=1,
-        time_limit_s=15,
     )
 
     assert result["decision"].best_model is not None
@@ -124,7 +121,6 @@ def test_forecasting_pipeline_end_to_end(forecasting_df, monkeypatch, tmp_path):
         file_path=str(csv_path),
         business_description="Forecast daily sales",
         max_retries=1,
-        time_limit_s=15,
     )
 
     assert result["decision"].best_model is not None

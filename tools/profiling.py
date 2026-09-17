@@ -4,8 +4,7 @@ signals, and data-quality analysis - no LLM involved.
 Runs before the Planner so it can reason over structured, pre-computed facts
 (DatasetProfile / TargetAnalysis / DataQualityReport) instead of needing to
 infer everything itself from a thin schema summary. Like tools/eda.py, this
-only ever returns aggregated stats - never raw rows - and honors the same
-sensitive_columns denylist used everywhere else in data_ingestion/tools.
+only ever returns aggregated stats - never raw rows.
 """
 from __future__ import annotations
 
@@ -29,11 +28,6 @@ NEAR_CONSTANT_THRESHOLD = 0.99
 ID_LIKE_UNIQUE_RATIO = 0.98
 MAX_CATEGORICAL_TARGET_CARDINALITY = 20
 MIN_ROWS_FOR_OUTLIER_CHECK = 4
-
-
-def _visible_columns(df: pd.DataFrame, sensitive_columns: Optional[list[str]]) -> list[str]:
-    sensitive = set(sensitive_columns or [])
-    return [c for c in df.columns if c not in sensitive]
 
 
 def _looks_like_datetime(series: pd.Series, sample_size: int = 20) -> bool:
@@ -123,26 +117,23 @@ def _build_column_profile(series: pd.Series, row_count: int) -> ColumnProfile:
     )
 
 
-def profile_dataset(
-    df: pd.DataFrame, sensitive_columns: Optional[list[str]] = None
-) -> DatasetProfile:
+def profile_dataset(df: pd.DataFrame) -> DatasetProfile:
     """Row/column counts, per-column dtype/cardinality/missingness, duplicate
     rows, and constant/near-constant column detection. Deterministic, pandas-only.
     """
-    sensitive = set(sensitive_columns or [])
-    visible_cols = _visible_columns(df, sensitive_columns)
+    all_cols = list(df.columns)
     row_count = int(len(df))
 
     columns: list[ColumnProfile] = [
-        _build_column_profile(df[col], row_count) for col in visible_cols
+        _build_column_profile(df[col], row_count) for col in all_cols
     ]
 
     duplicate_row_count = int(df.duplicated().sum()) if row_count else 0
 
     return DatasetProfile(
         row_count=row_count,
-        column_count=len(visible_cols),
-        column_names=visible_cols,
+        column_count=len(all_cols),
+        column_names=all_cols,
         duplicate_row_count=duplicate_row_count,
         duplicate_row_pct=round((duplicate_row_count / row_count) * 100, 2) if row_count else 0.0,
         numerical_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.NUMERICAL],
@@ -151,7 +142,6 @@ def profile_dataset(
         boolean_columns=[c.name for c in columns if c.inferred_kind == ColumnKind.BOOLEAN],
         constant_columns=[c.name for c in columns if c.is_constant],
         near_constant_columns=[c.name for c in columns if c.is_near_constant],
-        excluded_sensitive_column_count=len(sensitive & set(df.columns)),
         columns=columns,
     )
 
@@ -159,7 +149,6 @@ def profile_dataset(
 def analyze_target(
     df: pd.DataFrame,
     profile: DatasetProfile,
-    sensitive_columns: Optional[list[str]] = None,
 ) -> TargetAnalysis:
     """Deterministic candidate-target detection. Never picks a target outright
     (that decision belongs to the Planner, informed by business context) -
@@ -324,7 +313,6 @@ def _detect_sentinel_missing(series: pd.Series) -> Optional[dict]:
 def analyze_data_quality(
     df: pd.DataFrame,
     profile: DatasetProfile,
-    sensitive_columns: Optional[list[str]] = None,
     likely_target_column: Optional[str] = None,
 ) -> DataQualityReport:
     """Deterministic data-quality checks: missingness, duplicates, invalid
@@ -349,7 +337,7 @@ def analyze_data_quality(
             overall_quality_score=0.0,
         )
 
-    visible_cols = _visible_columns(df, sensitive_columns)
+    all_cols = list(df.columns)
     by_name = {c.name: c for c in profile.columns}
     issues: list[DataQualityIssue] = []
 
@@ -425,7 +413,7 @@ def analyze_data_quality(
             )
 
     suspicious_columns: list[str] = []
-    for col in visible_cols:
+    for col in all_cols:
         col_profile = by_name.get(col)
         if col_profile is None:
             continue
@@ -439,7 +427,7 @@ def analyze_data_quality(
             )
 
     possible_leakage_columns: list[str] = []
-    for col in visible_cols:
+    for col in all_cols:
         if col == likely_target_column:
             continue  # the target itself can't "leak" its own value - see this function's docstring
         if any(hint in col.lower() for hint in LEAKAGE_NAME_HINTS):

@@ -26,12 +26,12 @@ def test_planner_prompt_never_contains_raw_rows(classification_df, monkeypatch):
 
     monkeypatch.setattr(planner_module, "call_llm_json", fake_call_llm_json)
 
-    schema = extract_schema(classification_df, sensitive_columns=["customer_name"])
+    schema = extract_schema(classification_df)
     planner_module.build_plan("Predict churn", schema)
 
     prompt = captured["user_prompt"]
-    # No sensitive column name, and no specific raw cell values, should appear.
-    assert "customer_name" not in prompt
+    # Column names/stats are expected to appear (schema_summary is built from
+    # them); the actual privacy boundary is that no raw cell value ever does.
     assert "Customer 0" not in prompt
     for raw_value in classification_df["monthly_charge"].dropna().astype(str).head(20):
         assert raw_value not in prompt
@@ -54,14 +54,11 @@ def test_planner_prompt_with_data_intelligence_never_contains_raw_rows(classific
 
     monkeypatch.setattr(planner_module, "call_llm_json", fake_call_llm_json)
 
-    sensitive = ["customer_name"]
-    schema = extract_schema(classification_df, sensitive_columns=sensitive)
-    dataset_profile = profile_dataset(classification_df, sensitive_columns=sensitive)
-    target_analysis = analyze_target(classification_df, dataset_profile, sensitive_columns=sensitive)
-    quality_report = analyze_data_quality(classification_df, dataset_profile, sensitive_columns=sensitive)
-    problem_definition = detect_problem(
-        classification_df, dataset_profile, target_analysis, quality_report, sensitive_columns=sensitive
-    )
+    schema = extract_schema(classification_df)
+    dataset_profile = profile_dataset(classification_df)
+    target_analysis = analyze_target(classification_df, dataset_profile)
+    quality_report = analyze_data_quality(classification_df, dataset_profile)
+    problem_definition = detect_problem(classification_df, dataset_profile, target_analysis, quality_report)
 
     planner_module.build_plan(
         "Predict churn",
@@ -73,7 +70,7 @@ def test_planner_prompt_with_data_intelligence_never_contains_raw_rows(classific
     )
 
     prompt = captured["user_prompt"]
-    assert "customer_name" not in prompt
+    # Column names/stats are expected to appear; only raw cell values must not.
     assert "Customer 0" not in prompt
     for raw_value in classification_df["monthly_charge"].dropna().astype(str).head(20):
         assert raw_value not in prompt

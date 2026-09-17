@@ -34,11 +34,6 @@ def test_eda_leaves_genuinely_categorical_text_column_out_of_numeric_stats():
     assert "city" not in summary["correlation_matrix"]
 
 
-def test_eda_excludes_sensitive_columns(classification_df):
-    summary = run_eda(classification_df, sensitive_columns=["customer_name"])
-    assert "customer_name" not in summary["missing_value_pct"]
-
-
 def test_eda_detects_missing_values(classification_df):
     summary = run_eda(classification_df)
     assert summary["missing_value_pct"]["monthly_charge"] > 0

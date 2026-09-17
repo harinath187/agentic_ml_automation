@@ -156,9 +156,7 @@ class ExperimentRecord(BaseModel):
     # configuration (reproducibility inputs)
     file_path: str
     business_description: str
-    sensitive_columns: list[str] = Field(default_factory=list)
     max_retries: int
-    time_limit_s: int
     random_seed: int = GLOBAL_RANDOM_SEED
 
     # dataset metadata/hash
@@ -209,9 +207,7 @@ def build_record(
     started_perf: float,
     file_path: str,
     business_description: str,
-    sensitive_columns: list[str],
     max_retries: int,
-    time_limit_s: int,
     state: dict[str, Any],
     exception: Optional[BaseException] = None,
     status_override: Optional[str] = None,
@@ -276,9 +272,7 @@ def build_record(
         status=status,
         file_path=str(file_path),
         business_description=business_description,
-        sensitive_columns=list(sensitive_columns or []),
         max_retries=max_retries,
-        time_limit_s=time_limit_s,
         random_seed=GLOBAL_RANDOM_SEED,
         dataset_hash=hash_file(file_path),
         dataset_row_count=dataset_profile.row_count if dataset_profile else None,

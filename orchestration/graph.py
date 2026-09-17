@@ -121,10 +121,8 @@ class PipelineState(TypedDict, total=False):
     run_id: str
     cancel_event: Any  # Optional[threading.Event] - process-local only, never serialized/sent to an LLM
     file_path: str
-    sensitive_columns: list[str]
     business_description: str
     max_retries: int
-    time_limit_s: int
 
     df: Any
     schema_summary: dict
@@ -159,13 +157,13 @@ class PipelineState(TypedDict, total=False):
 
 def node_ingest(state: PipelineState) -> PipelineState:
     df = load_dataset(state["file_path"])
-    schema_summary = extract_schema(df, state.get("sensitive_columns"))
+    schema_summary = extract_schema(df)
     return {"df": df, "schema_summary": schema_summary}
 
 
 def node_profile_data(state: PipelineState) -> PipelineState:
     """Deterministic Data Intelligence, step 1: dataset-level profiling."""
-    dataset_profile = profiling.profile_dataset(state["df"], state.get("sensitive_columns"))
+    dataset_profile = profiling.profile_dataset(state["df"])
     return {"dataset_profile": dataset_profile}
 
 
@@ -177,10 +175,9 @@ def node_quality_analysis(state: PipelineState) -> PipelineState:
     strategy or retries.
     """
     dataset_profile = state["dataset_profile"]
-    sensitive_columns = state.get("sensitive_columns")
-    target_analysis = profiling.analyze_target(state["df"], dataset_profile, sensitive_columns)
+    target_analysis = profiling.analyze_target(state["df"], dataset_profile)
     data_quality_report = profiling.analyze_data_quality(
-        state["df"], dataset_profile, sensitive_columns,
+        state["df"], dataset_profile,
         likely_target_column=target_analysis.recommended_target,
     )
     return {"target_analysis": target_analysis, "data_quality_report": data_quality_report}
@@ -198,7 +195,6 @@ def node_detect_problem(state: PipelineState) -> PipelineState:
         state["dataset_profile"],
         state["target_analysis"],
         state["data_quality_report"],
-        state.get("sensitive_columns"),
     )
     return {"problem_definition": problem_definition}
 
@@ -266,7 +262,7 @@ def node_feature_selection(state: PipelineState) -> PipelineState:
 
 
 def node_eda(state: PipelineState) -> PipelineState:
-    summary = eda.run_eda(state["df"], state.get("sensitive_columns"))
+    summary = eda.run_eda(state["df"])
     return {"eda_summary": summary}
 
 
@@ -320,10 +316,14 @@ def node_split(state: PipelineState) -> PipelineState:
 
 def node_train(state: PipelineState) -> PipelineState:
     """Runs every candidate the validated ExperimentPlan named (Phase 3
-    model registry) - AutoGluon is one candidate among several here, not
-    the only source of models. Falls back to a minimal safe default only
-    when none of the plan's candidate_model_families match the registry for
-    this problem_type, so a run never trains zero models."""
+    model registry) - classical sklearn/xgboost/lightgbm models only.
+    AutoGluon is NOT in this registry (see tools/model_registry.py's module
+    docstring) and this pooled/single_entity path never calls it directly;
+    AutoGluon only runs for the per_entity (tools/automl_training.train_models,
+    called per entity) and hierarchical (train_hierarchical_timeseries) scope
+    strategies below. Falls back to a minimal safe default only when none of
+    the plan's candidate_model_families match the registry for this
+    problem_type, so a run never trains zero models."""
     plan = state["plan"]
     problem_type = plan.problem_type or ProblemType.REGRESSION
     candidates, _unmatched = model_registry.resolve_candidates(problem_type, plan.candidate_model_families)
@@ -353,7 +353,6 @@ def node_train(state: PipelineState) -> PipelineState:
         problem_type=problem_type,
         validation_strategy=plan.validation_strategy.strategy_type if plan.validation_strategy else None,
         validation_folds=plan.validation_strategy.folds if plan.validation_strategy else None,
-        automl_time_limit=state.get("time_limit_s", 60),
         evaluation_metrics=plan.evaluation_metrics,
     )
     return {"metrics": metrics, "chart_data": chart_data}
@@ -377,14 +376,12 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
     )
     problem_type = plan.problem_type.value if plan.problem_type else "regression"
     aggressive = state.get("retry_count", 0) > 0
-    total_time_budget = state.get("time_limit_s", 60)
 
     entity_values = sorted(df[plan.entity_column].dropna().unique().tolist(), key=str)
     truncated = len(entity_values) > MAX_PER_ENTITY
     if truncated:
         entity_values = entity_values[:MAX_PER_ENTITY]
 
-    per_entity_time_limit = max(10, total_time_budget // max(1, len(entity_values)))
     aggressive = aggressive or "cap_outliers" in plan.preprocessing_requirements
 
     per_entity_metrics: dict[str, dict] = {}
@@ -420,7 +417,6 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
                 target_column=plan.target_column,
                 problem_type=problem_type,
                 time_column=plan.time_column,
-                time_limit=per_entity_time_limit,
             )
         except Exception as exc:  # noqa: BLE001 - one bad entity shouldn't kill the whole run
             skipped.append({"entity": str(value), "reason": str(exc)})
@@ -470,7 +466,6 @@ def node_hierarchical_train(state: PipelineState) -> PipelineState:
         entity_column=plan.entity_column,
         target_column=plan.target_column,
         time_column=plan.time_column,
-        time_limit=state.get("time_limit_s", 60),
     )
     return {"metrics": metrics}
 
@@ -654,9 +649,7 @@ def build_graph():
 def run_pipeline(
     file_path: str,
     business_description: str,
-    sensitive_columns: Optional[list[str]] = None,
     max_retries: int = MAX_RETRIES_DEFAULT,
-    time_limit_s: int = 60,
     run_id: Optional[str] = None,
     cancel_event: Optional[threading.Event] = None,
     progress_callback: Optional[Callable[[str, dict], None]] = None,
@@ -707,9 +700,7 @@ def run_pipeline(
         "cancel_event": cancel_event,
         "file_path": file_path,
         "business_description": business_description,
-        "sensitive_columns": sensitive_columns or [],
         "max_retries": max_retries,
-        "time_limit_s": time_limit_s,
         "retry_count": 0,
     }
 
@@ -747,9 +738,7 @@ def run_pipeline(
             started_perf=started_perf,
             file_path=file_path,
             business_description=business_description,
-            sensitive_columns=sensitive_columns or [],
             max_retries=max_retries,
-            time_limit_s=time_limit_s,
             state=result,
             exception=exception,
             status_override=status_override,
