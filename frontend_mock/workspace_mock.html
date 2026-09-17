@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Workspace Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent: #0f7a6e;
+    --accent-ink: #0a5c53;
+    --accent-soft: #e4f3f0;
+    --bg: #f7f6f2;
+    --surface: #ffffff;
+    --surface-sunken: #f1efe9;
+    --border: #e3e0d7;
+    --border-strong: #cfccc1;
+    --text: #1d1c19;
+    --text-muted: #6f6c62;
+    --text-faint: #9c988c;
+    --danger: #b3452f;
+    --shadow: 0 1px 2px rgba(29,28,25,.05), 0 6px 20px -8px rgba(29,28,25,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --accent: #33c9b5;
+      --accent-ink: #7fe6d6;
+      --accent-soft: #123a35;
+      --bg: #161512;
+      --surface: #1e1d19;
+      --surface-sunken: #26251f;
+      --border: #35332b;
+      --border-strong: #454237;
+      --text: #f1efe7;
+      --text-muted: #a8a496;
+      --text-faint: #716d60;
+      --danger: #e08469;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --accent: #33c9b5;
+    --accent-ink: #7fe6d6;
+    --accent-soft: #123a35;
+    --bg: #161512;
+    --surface: #1e1d19;
+    --surface-sunken: #26251f;
+    --border: #35332b;
+    --border-strong: #454237;
+    --text: #f1efe7;
+    --text-muted: #a8a496;
+    --text-faint: #716d60;
+    --danger: #e08469;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    font-size:14px;
+    line-height:1.5;
+  }
+  h1,h2,h3,.brand,.tile-value,.btn,.tab,.nav-item{ font-family:'Manrope', ui-sans-serif, system-ui, sans-serif; }
+  h1,h2,h3{ text-wrap:balance; margin:0; }
+  .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
+
+  a{ color:inherit; }
+  button{ font:inherit; color:inherit; cursor:pointer; }
+
+  .app{ display:flex; flex-direction:column; min-height:100vh; }
+
+  /* ---------- Topbar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:20;
+    display:flex; align-items:center; justify-content:space-between;
+    gap:12px; padding:12px 20px;
+    background:var(--surface); border-bottom:1px solid var(--border);
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:700; font-size:15px; }
+  .brand .mark{
+    width:26px; height:26px; border-radius:7px;
+    background:linear-gradient(155deg, var(--accent), var(--accent-ink));
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:13px; font-weight:800;
+  }
+  .ws-switcher{
+    display:flex; align-items:center; gap:8px;
+    padding:7px 12px; border:1px solid var(--border); border-radius:8px;
+    background:var(--surface-sunken); font-weight:600; font-size:13px;
+    max-width:260px; overflow:hidden;
+  }
+  .ws-switcher span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .topbar-right{ display:flex; align-items:center; gap:10px; }
+
+  /* ---------- Layout shell ---------- */
+  .shell{ display:flex; flex:1; width:100%; }
+
+  .sidebar{
+    width:220px; flex-shrink:0;
+    background:var(--surface); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; padding:16px 12px;
+    gap:18px;
+  }
+  .side-section-label{
+    font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--text-faint); padding:0 10px; margin-bottom:6px;
+  }
+  .side-nav{ display:flex; flex-direction:column; gap:2px; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 10px; border-radius:8px; font-size:13.5px; font-weight:600;
+    color:var(--text-muted); border:1px solid transparent; text-align:left; background:transparent;
+    width:100%;
+  }
+  .nav-item .ico{ width:16px; text-align:center; font-size:13px; }
+  .nav-item:hover{ background:var(--surface-sunken); color:var(--text); }
+  .nav-item.active{ background:var(--accent-soft); color:var(--accent-ink); }
+
+  .main{ flex:1; min-width:0; padding:28px 32px 60px; }
+  .crumbs{ font-size:12.5px; color:var(--text-faint); margin-bottom:8px; display:flex; gap:6px; flex-wrap:wrap;}
+  .crumbs button{ background:none; border:none; color:var(--text-faint); text-decoration:none; padding:0; }
+  .crumbs button:hover{ color:var(--accent-ink); text-decoration:underline; }
+  .crumbs .sep{ color:var(--text-faint); }
+  .page-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:22px; }
+  .page-head h1{ font-size:26px; font-weight:800; letter-spacing:-.01em; }
+  .page-head p{ margin:6px 0 0; color:var(--text-muted); font-size:13.5px; max-width:56ch; }
+
+  .btn{
+    display:inline-flex; align-items:center; gap:7px; border-radius:8px;
+    padding:9px 15px; font-size:13.5px; font-weight:700; border:1px solid transparent;
+    white-space:nowrap;
+  }
+  .btn-primary{ background:var(--text); color:var(--bg); }
+  :root[data-theme="dark"] .btn-primary, @media (prefers-color-scheme:dark){ .btn-primary{ background:var(--text); color:var(--bg); } }
+  .btn-primary:hover{ opacity:.88; }
+  .btn-outline{ background:var(--surface); border-color:var(--border-strong); color:var(--text); }
+  .btn-outline:hover{ background:var(--surface-sunken); }
+  .btn-accent{ background:var(--accent); color:#fff; }
+  .btn-accent:hover{ background:var(--accent-ink); }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .btn-sm{ padding:6px 11px; font-size:12.5px; border-radius:7px; }
+
+  /* ---------- Stat tiles ---------- */
+  .tiles{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px,1fr)); gap:14px; margin-bottom:26px; }
+  .tile{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .tile-label{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); }
+  .tile-value{ font-size:28px; font-weight:800; margin-top:6px; font-variant-numeric:tabular-nums; }
+
+  /* ---------- Cards / sections ---------- */
+  .section{ margin-bottom:32px; }
+  .section-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .section-head h2{ font-size:16px; font-weight:800; }
+  .section-head .hint{ font-size:12.5px; color:var(--text-muted); }
+
+  .grid-cards{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; box-shadow:var(--shadow); text-align:left; display:flex; flex-direction:column; gap:6px;
+    width:100%;
+  }
+  button.card{ transition:transform .12s ease, border-color .12s ease; }
+  button.card:hover{ border-color:var(--border-strong); transform:translateY(-1px); }
+  .card-top{ display:flex; align-items:center; gap:10px; }
+  .card-icon{
+    width:34px; height:34px; border-radius:8px; background:var(--accent-soft); color:var(--accent-ink);
+    display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;
+  }
+  .card-title{ font-weight:700; font-size:14.5px; }
+  .card-sub{ color:var(--text-faint); font-size:12.5px; }
+  .card-meta{ color:var(--text-muted); font-size:12.5px; margin-top:2px; }
+
+  .empty{
+    border:1px dashed var(--border-strong); border-radius:12px; padding:30px 20px;
+    text-align:center; color:var(--text-muted); font-size:13.5px; background:var(--surface-sunken);
+  }
+  .empty .btn{ margin-top:12px; }
+
+  /* ---------- List rows (datasets / runs) ---------- */
+  .list{ display:flex; flex-direction:column; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface); box-shadow:var(--shadow); }
+  .list-row{
+    display:flex; align-items:center; gap:14px; padding:13px 16px;
+    border-bottom:1px solid var(--border);
+    background:none; border-left:none; border-right:none; border-top:none; width:100%; text-align:left;
+  }
+  .list-row:last-child{ border-bottom:none; }
+  button.list-row:hover{ background:var(--surface-sunken); }
+  .list-icon{
+    width:32px; height:32px; border-radius:8px; background:var(--surface-sunken); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; color:var(--text-muted);
+  }
+  .list-main{ flex:1; min-width:0; }
+  .list-title{ font-weight:700; font-size:13.5px; }
+  .list-sub{ color:var(--text-faint); font-size:12px; margin-top:2px; }
+  .list-side{ display:flex; align-items:center; gap:16px; flex-shrink:0; }
+  .list-stat{ text-align:right; }
+  .list-stat .k{ font-size:11px; color:var(--text-faint); }
+  .list-stat .v{ font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+
+  .pill{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:99px;
+    font-size:11.5px; font-weight:700; letter-spacing:.02em;
+  }
+  .pill::before{ content:''; width:6px; height:6px; border-radius:50%; }
+  .pill-success{ background:#e3f5ea; color:#1f7a45; }
+  .pill-success::before{ background:#1f9d52; }
+  .pill-running{ background:#fff3d9; color:#8a5a00; }
+  .pill-running::before{ background:#e0a300; }
+  :root[data-theme="dark"] .pill-success, @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .pill-success{ background:#123922; color:#7fe6a8; } }
+  :root[data-theme="dark"] .pill-running, @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .pill-running{ background:#3a2c05; color:#f0c66a; } }
+
+  /* ---------- Workspace switcher dropdown ---------- */
+  .ws-switcher-wrap{ position:relative; }
+  .ws-switcher{ cursor:pointer; }
+  .ws-switcher .chev{ margin-left:2px; color:var(--text-faint); font-size:10px; }
+  .ws-dropdown{
+    position:absolute; top:calc(100% + 6px); left:0; min-width:220px; max-width:300px;
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 16px 40px -14px rgba(0,0,0,.35); overflow:hidden; z-index:30;
+  }
+  .ws-dropdown-item{
+    display:flex; align-items:center; gap:9px; width:100%; padding:9px 12px;
+    font-size:13px; font-weight:600; background:none; border:none; text-align:left; color:var(--text);
+  }
+  .ws-dropdown-item:hover{ background:var(--surface-sunken); }
+  .ws-dropdown-item.current{ color:var(--accent-ink); background:var(--accent-soft); }
+  .ws-dropdown-item .ico{ font-size:14px; flex-shrink:0; }
+  .ws-dropdown-item span.label{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .ws-dropdown-sep{ height:1px; background:var(--border); margin:4px 0; }
+  .ws-dropdown-create{ color:var(--accent-ink); }
+
+  /* ---------- Dropzone ---------- */
+  .dropzone{
+    border:1.5px dashed var(--border-strong); border-radius:14px; padding:34px 20px;
+    text-align:center; background:var(--surface-sunken); transition:border-color .15s, background .15s;
+  }
+  .dropzone.drag{ border-color:var(--accent); background:var(--accent-soft); }
+  .dropzone .ico{ font-size:26px; margin-bottom:10px; }
+  .dropzone .title{ font-weight:700; font-size:14px; }
+  .dropzone .sub{ color:var(--text-muted); font-size:12.5px; margin-top:4px; }
+  .dropzone input{ display:none; }
+
+  /* ---------- Modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(20,18,14,.45); backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center; padding:20px; z-index:100;
+  }
+  .modal{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    width:100%; max-width:440px; padding:22px; box-shadow:0 24px 60px -20px rgba(0,0,0,.4);
+  }
+  .modal h3{ font-size:16px; font-weight:800; margin-bottom:4px; }
+  .modal .desc{ color:var(--text-muted); font-size:12.5px; margin-bottom:16px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; }
+  .field input, .field textarea{
+    width:100%; border:1px solid var(--border-strong); border-radius:8px; padding:9px 11px;
+    font:inherit; font-size:13.5px; background:var(--bg); color:var(--text);
+  }
+  .field input:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+  .kv-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  .kv-table tr{ border-bottom:1px solid var(--border); }
+  .kv-table tr:last-child{ border-bottom:none; }
+  .kv-table td{ padding:8px 0; }
+  .kv-table td:first-child{ color:var(--text-faint); width:40%; }
+  .kv-table td:last-child{ font-weight:600; text-align:right; }
+
+  .col-preview{ overflow-x:auto; border:1px solid var(--border); border-radius:8px; margin-top:14px; }
+  table.preview-table{ border-collapse:collapse; width:100%; font-size:11.5px; white-space:nowrap; }
+  table.preview-table th{ text-align:left; background:var(--surface-sunken); padding:6px 10px; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border); }
+  table.preview-table td{ padding:6px 10px; border-bottom:1px solid var(--border); color:var(--text); }
+  table.preview-table tr:last-child td{ border-bottom:none; }
+
+  [hidden]{ display:none !important; }
+
+  @media (max-width:720px){
+    .shell{ flex-direction:column; }
+    .sidebar{ width:100%; flex-direction:row; overflow-x:auto; border-right:none; border-bottom:1px solid var(--border); padding:10px 12px; align-items:center; }
+    .side-section-label{ display:none; }
+    .side-nav{ flex-direction:row; }
+    .main{ padding:20px 16px 48px; }
+    .ws-switcher{ max-width:130px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="mark">A</span> Agentic ML Console</div>
+    <div class="topbar-right">
+      <div class="ws-switcher-wrap">
+        <button class="ws-switcher" id="wsSwitcher" title="Switch workspace" aria-haspopup="true" aria-expanded="false">
+          <span id="wsSwitcherIcon">🏠</span>
+          <span id="wsSwitcherLabel">Pick a workspace</span>
+          <span class="chev">▾</span>
+        </button>
+        <div id="wsDropdown" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="shell">
+    <!-- Sidebar: only shown inside a workspace -->
+    <div class="sidebar" id="sidebar" hidden>
+      <div>
+        <div class="side-section-label">Workspace</div>
+        <div class="side-nav">
+          <button class="nav-item" data-tab="dashboard"><span class="ico">📊</span> Dashboard</button>
+          <button class="nav-item" data-tab="projects"><span class="ico">📁</span> Projects</button>
+          <button class="nav-item" data-tab="datasets"><span class="ico">🗄️</span> Datasets</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="main" id="main"></div>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- persistence ---------------- */
+  var STORE_KEY = "ml_console_mock_v1";
+  function loadState(){
+    try{
+      var raw = localStorage.getItem(STORE_KEY);
+      if(raw) return JSON.parse(raw);
+    }catch(e){}
+    return null;
+  }
+  function saveState(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+  }
+
+  function uid(prefix){ return prefix + "_" + Math.random().toString(36).slice(2,9); }
+  function fmtDate(ts){
+    var d = new Date(ts);
+    return d.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
+  }
+  function fmtBytes(n){
+    if(n < 1024) return n + " B";
+    if(n < 1024*1024) return (n/1024).toFixed(1) + " kB";
+    return (n/1024/1024).toFixed(1) + " MB";
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  /* ---------------- seed data ---------------- */
+  function seed(){
+    var wsId = uid("ws");
+    var projId = uid("proj");
+    var dsId = uid("ds");
+    var now = Date.now();
+    return {
+      view: "workspaces",        // "workspaces" | "workspace" | "project"
+      tab: "projects",           // dashboard | projects | datasets  (lands on projects per spec)
+      currentWorkspaceId: null,
+      currentProjectId: null,
+      workspaces: [
+        {id: wsId, name: "My workspace", createdAt: now - 1000*60*60*24*3},
+        {id: uid("ws"), name: "testworkspace", createdAt: now - 1000*60*60*24*3},
+        {id: uid("ws"), name: "staging", createdAt: now - 1000*60*60*5}
+      ],
+      projects: [
+        {id: projId, workspaceId: wsId, name: "classification", createdAt: now - 1000*60*60*24*2,
+         description: "Predict which patients are at high risk of diabetes so care teams can prioritize outreach."}
+      ],
+      datasets: [
+        {id: dsId, workspaceId: wsId, projectId: projId, name: "diabetes.csv",
+         rows: 768, cols: 9, columns: ["Pregnancies","Glucose","BloodPressure","SkinThickness","Insulin","BMI","DiabetesPedigreeFn","Age","Outcome"],
+         sizeBytes: 23851, createdAt: now - 1000*60*60*20, preview: null}
+      ],
+      runs: [
+        {id: uid("run"), workspaceId: wsId, projectId: projId, datasetId: dsId,
+         status: "succeeded", createdAt: now - 1000*60*40, durationS: 23.9}
+      ]
+    };
+  }
+
+  var state = loadState() || seed();
+
+  // One-time migration: viewers who already saved state before "testworkspace" /
+  // "staging" were added to the seed should still see them.
+  (function addSampleWorkspacesIfMissing(){
+    var now = Date.now();
+    var names = state.workspaces.map(function(w){ return w.name; });
+    if(names.indexOf("testworkspace") === -1){
+      state.workspaces.push({id: uid("ws"), name: "testworkspace", createdAt: now - 1000*60*60*24*3});
+    }
+    if(names.indexOf("staging") === -1){
+      state.workspaces.push({id: uid("ws"), name: "staging", createdAt: now - 1000*60*60*5});
+    }
+    saveState();
+  })();
+
+  /* ---------------- derived helpers ---------------- */
+  function currentWorkspace(){ return state.workspaces.find(function(w){ return w.id === state.currentWorkspaceId; }); }
+  function projectsIn(wsId){ return state.projects.filter(function(p){ return p.workspaceId === wsId; }); }
+  function datasetsIn(wsId){ return state.datasets.filter(function(d){ return d.workspaceId === wsId; }); }
+  function datasetsForProject(projId){ return state.datasets.filter(function(d){ return d.projectId === projId; }); }
+  function runsIn(wsId){ return state.runs.filter(function(r){ return r.workspaceId === wsId; }).sort(function(a,b){return b.createdAt-a.createdAt;}); }
+  function currentProject(){ return state.projects.find(function(p){ return p.id === state.currentProjectId; }); }
+
+  /* ---------------- navigation ---------------- */
+  function goWorkspaces(){
+    state.view = "workspaces";
+    state.currentWorkspaceId = null;
+    state.currentProjectId = null;
+    render();
+  }
+  function openWorkspace(wsId){
+    state.view = "workspace";
+    state.currentWorkspaceId = wsId;
+    state.tab = "projects"; // "If we click on any workspace it should land on the projects tab."
+    state.currentProjectId = null;
+    render();
+  }
+  function setTab(tab){
+    state.tab = tab;
+    state.currentProjectId = null;
+    state.view = "workspace";
+    render();
+  }
+  function openProject(projId){
+    state.view = "project";
+    state.currentProjectId = projId;
+    render();
+  }
+  function backToProjects(){
+    state.view = "workspace";
+    state.tab = "projects";
+    state.currentProjectId = null;
+    render();
+  }
+
+  /* ---------------- modal ---------------- */
+  function closeModal(){
+    document.getElementById("modalRoot").innerHTML = "";
+  }
+  function openModal(html){
+    document.getElementById("modalRoot").innerHTML =
+      '<div class="modal-overlay" id="modalOverlay"><div class="modal">' + html + '</div></div>';
+    document.getElementById("modalOverlay").addEventListener("click", function(e){
+      if(e.target.id === "modalOverlay") closeModal();
+    });
+  }
+
+  function modalNewWorkspace(){
+    openModal(
+      '<h3>New workspace</h3>' +
+      '<p class="desc">A workspace groups projects, datasets, and runs for a team or environment.</p>' +
+      '<div class="field"><label for="nwName">Workspace name</label>' +
+      '<input id="nwName" type="text" placeholder="e.g. Growth analytics" autocomplete="off"></div>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-outline" id="nwCancel">Cancel</button>' +
+      '<button class="btn btn-primary" id="nwCreate">Create workspace</button>' +
+      '</div>'
+    );
+    document.getElementById("nwCancel").addEventListener("click", closeModal);
+    var input = document.getElementById("nwName");
+    input.focus();
+    function submit(){
+      var name = input.value.trim();
+      if(!name) { input.focus(); return; }
+      var ws = {id: uid("ws"), name: name, createdAt: Date.now()};
+      state.workspaces.unshift(ws);
+      saveState();
+      closeModal();
+      openWorkspace(ws.id);
+    }
+    document.getElementById("nwCreate").addEventListener("click", submit);
+    input.addEventListener("keydown", function(e){ if(e.key === "Enter") submit(); });
+  }
+
+  function modalNewProject(){
+    var ws = currentWorkspace();
+    openModal(
+      '<h3>New project</h3>' +
+      '<p class="desc">Projects group experiments, runs, and pipelines in <strong>' + escapeHtml(ws.name) + '</strong> around one ML problem.</p>' +
+      '<div class="field"><label for="npName">Project name</label>' +
+      '<input id="npName" type="text" placeholder="e.g. churn-prediction" autocomplete="off"></div>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-outline" id="npCancel">Cancel</button>' +
+      '<button class="btn btn-primary" id="npCreate">Create project</button>' +
+      '</div>'
+    );
+    document.getElementById("npCancel").addEventListener("click", closeModal);
+    var input = document.getElementById("npName");
+    input.focus();
+    function submit(){
+      var name = input.value.trim();
+      if(!name) { input.focus(); return; }
+      var proj = {id: uid("proj"), workspaceId: ws.id, name: name, createdAt: Date.now(), description: ""};
+      state.projects.unshift(proj);
+      saveState();
+      closeModal();
+      openProject(proj.id);
+    }
+    document.getElementById("npCreate").addEventListener("click", submit);
+    input.addEventListener("keydown", function(e){ if(e.key === "Enter") submit(); });
+  }
+
+  function modalDataset(ds){
+    openModal(
+      '<h3>' + escapeHtml(ds.name) + '</h3>' +
+      '<p class="desc">Dataset detail (mock preview — no server-side parsing in this prototype).</p>' +
+      '<table class="kv-table">' +
+        '<tr><td>Rows</td><td>' + ds.rows.toLocaleString() + '</td></tr>' +
+        '<tr><td>Size</td><td>' + fmtBytes(ds.sizeBytes) + '</td></tr>' +
+        '<tr><td>Uploaded</td><td>' + fmtDate(ds.createdAt) + '</td></tr>' +
+      '</table>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-outline" id="dsClose">Close</button>' +
+      '</div>'
+    );
+    document.getElementById("dsClose").addEventListener("click", closeModal);
+  }
+
+  /* ---------------- CSV handling ---------------- */
+  function parseCsvFile(file, cb){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var text = String(e.target.result || "");
+      var lines = text.split(/\r\n|\n|\r/).filter(function(l){ return l.length > 0; });
+      var rows = [];
+      for(var i=0;i<Math.min(lines.length, 6); i++){
+        rows.push(lines[i].split(",").map(function(s){ return s.trim(); }));
+      }
+      var cols = rows.length ? rows[0].length : 0;
+      var rowCount = Math.max(lines.length - 1, 0);
+      cb({rows: rowCount, cols: cols, preview: rows, sizeBytes: file.size});
+    };
+    reader.onerror = function(){
+      cb({rows: 0, cols: 0, preview: null, sizeBytes: file.size});
+    };
+    reader.readAsText(file.slice(0, 200000)); // sample first ~200kB for the mock
+  }
+
+  function handleCsvUpload(file){
+    var proj = currentProject();
+    if(!proj || !file) return;
+    parseCsvFile(file, function(info){
+      var ds = {
+        id: uid("ds"),
+        workspaceId: proj.workspaceId,
+        projectId: proj.id,
+        name: file.name,
+        rows: info.rows,
+        cols: info.cols,
+        columns: info.preview && info.preview[0] ? info.preview[0] : [],
+        sizeBytes: info.sizeBytes,
+        createdAt: Date.now(),
+        preview: info.preview
+      };
+      state.datasets.unshift(ds);
+      saveState();
+      render();
+    });
+  }
+
+  function runPipeline(projId, datasetId){
+    var proj = state.projects.find(function(p){ return p.id === projId; });
+    if(!proj) return;
+    var run = {
+      id: uid("run"), workspaceId: proj.workspaceId, projectId: projId, datasetId: datasetId,
+      status: "running", createdAt: Date.now(), durationS: null
+    };
+    state.runs.unshift(run);
+    saveState();
+    render();
+    var started = Date.now();
+    setTimeout(function(){
+      run.status = "succeeded";
+      run.durationS = +(((Date.now() - started)/1000) + 12.4).toFixed(1);
+      saveState();
+      render();
+    }, 1400);
+  }
+
+  /* ================= RENDER ================= */
+
+  function render(){
+    renderTopbar();
+    document.getElementById("sidebar").hidden = (state.view === "workspaces");
+    updateSidebarActive();
+    if(state.view === "workspaces") renderWorkspacesList();
+    else if(state.view === "workspace") renderWorkspace();
+    else if(state.view === "project") renderProjectDetail();
+  }
+
+  function renderTopbar(){
+    var label = document.getElementById("wsSwitcherLabel");
+    var icon = document.getElementById("wsSwitcherIcon");
+    var ws = currentWorkspace();
+    if(ws){ label.textContent = ws.name; icon.textContent = "🏠"; }
+    else { label.textContent = "Pick a workspace"; icon.textContent = "🏠"; }
+  }
+
+  function closeWsDropdown(){
+    var dd = document.getElementById("wsDropdown");
+    dd.hidden = true;
+    dd.innerHTML = "";
+    document.getElementById("wsSwitcher").setAttribute("aria-expanded", "false");
+  }
+
+  function toggleWsDropdown(){
+    var dd = document.getElementById("wsDropdown");
+    if(!dd.hidden){ closeWsDropdown(); return; }
+
+    var currentId = state.currentWorkspaceId;
+    dd.innerHTML =
+      '<div class="ws-dropdown">' +
+        state.workspaces.map(function(w){
+          return '<button class="ws-dropdown-item' + (w.id === currentId ? " current" : "") + '" data-goto-ws="' + w.id + '">' +
+            '<span class="ico">🏠</span><span class="label">' + escapeHtml(w.name) + '</span>' +
+          '</button>';
+        }).join("") +
+        '<div class="ws-dropdown-sep"></div>' +
+        '<button class="ws-dropdown-item" data-all-ws="1"><span class="ico">📋</span><span class="label">All workspaces</span></button>' +
+        '<button class="ws-dropdown-item ws-dropdown-create" data-new-ws="1"><span class="ico">+</span><span class="label">New workspace</span></button>' +
+      '</div>';
+    dd.hidden = false;
+    document.getElementById("wsSwitcher").setAttribute("aria-expanded", "true");
+
+    dd.querySelectorAll("[data-goto-ws]").forEach(function(el){
+      el.addEventListener("click", function(){
+        closeWsDropdown();
+        openWorkspace(el.dataset.gotoWs);
+      });
+    });
+    var allBtn = dd.querySelector("[data-all-ws]");
+    if(allBtn) allBtn.addEventListener("click", function(){ closeWsDropdown(); goWorkspaces(); });
+    var newBtn = dd.querySelector("[data-new-ws]");
+    if(newBtn) newBtn.addEventListener("click", function(){ closeWsDropdown(); modalNewWorkspace(); });
+  }
+
+  function updateSidebarActive(){
+    var items = document.querySelectorAll(".nav-item");
+    items.forEach(function(el){
+      el.classList.toggle("active", state.view !== "workspaces" && el.dataset.tab === state.tab && state.view !== "project" || (state.view === "project" && el.dataset.tab === "projects"));
+    });
+  }
+
+  function crumbsHtml(parts){
+    // parts: [{label, action}]
+    return '<div class="crumbs">' + parts.map(function(p, i){
+      var sep = i > 0 ? '<span class="sep">/</span>' : '';
+      if(p.action) return sep + '<button data-crumb="' + i + '">' + escapeHtml(p.label) + '</button>';
+      return sep + '<span>' + escapeHtml(p.label) + '</span>';
+    }).join("") + '</div>';
+  }
+  function wireCrumbs(root, parts){
+    root.querySelectorAll("[data-crumb]").forEach(function(el){
+      var idx = +el.dataset.crumb;
+      el.addEventListener("click", parts[idx].action);
+    });
+  }
+
+  /* ---- Workspaces list ---- */
+  function renderWorkspacesList(){
+    var main = document.getElementById("main");
+    var ws = state.workspaces;
+    main.innerHTML =
+      '<div class="page-head">' +
+        '<div><h1>Workspaces</h1><p>A workspace groups projects, datasets, pipelines, and deployments for a team or environment.</p></div>' +
+        '<button class="btn btn-primary" id="btnNewWs">+ New workspace</button>' +
+      '</div>' +
+      (ws.length ?
+        '<div class="grid-cards" id="wsGrid">' +
+          ws.map(function(w){
+            var pCount = projectsIn(w.id).length;
+            var dCount = datasetsIn(w.id).length;
+            return '<button class="card" data-ws="' + w.id + '">' +
+              '<div class="card-top"><div class="card-icon">🏠</div><div>' +
+                '<div class="card-title">' + escapeHtml(w.name) + '</div>' +
+                '<div class="card-sub">' + pCount + ' project' + (pCount===1?"":"s") + ' · ' + dCount + ' dataset' + (dCount===1?"":"s") + '</div>' +
+              '</div></div>' +
+              '<div class="card-meta">Created ' + fmtDate(w.createdAt) + '</div>' +
+            '</button>';
+          }).join("") +
+        '</div>'
+        :
+        '<div class="empty">No workspaces yet.<br><button class="btn btn-primary" id="btnNewWsEmpty">+ New workspace</button></div>'
+      );
+
+    var btn = document.getElementById("btnNewWs");
+    if(btn) btn.addEventListener("click", modalNewWorkspace);
+    var btnEmpty = document.getElementById("btnNewWsEmpty");
+    if(btnEmpty) btnEmpty.addEventListener("click", modalNewWorkspace);
+    main.querySelectorAll("[data-ws]").forEach(function(el){
+      el.addEventListener("click", function(){ openWorkspace(el.dataset.ws); });
+    });
+  }
+
+  /* ---- Workspace shell (dashboard / projects / datasets) ---- */
+  function renderWorkspace(){
+    var ws = currentWorkspace();
+    if(!ws){ goWorkspaces(); return; }
+    var main = document.getElementById("main");
+
+    var crumbParts = [
+      {label: "Workspaces", action: goWorkspaces},
+      {label: ws.name}
+    ];
+
+    var body = "";
+    if(state.tab === "dashboard") body = dashboardBody(ws);
+    else if(state.tab === "projects") body = projectsBody(ws);
+    else body = datasetsBody(ws);
+
+    main.innerHTML = crumbsHtml(crumbParts) + body;
+    wireCrumbs(main, crumbParts);
+
+    wireWorkspaceBodyEvents(main, ws);
+  }
+
+  function dashboardBody(ws){
+    var projCount = projectsIn(ws.id).length;
+    var runs = runsIn(ws.id);
+    var expCount = projectsIn(ws.id).filter(function(p){ return datasetsForProject(p.id).length > 0; }).length;
+    var weekAgo = Date.now() - 1000*60*60*24*7;
+    var runs7d = runs.filter(function(r){ return r.createdAt >= weekAgo; }).length;
+
+    var runsHtml;
+    if(runs.length){
+      runsHtml = '<div class="list">' + runs.slice(0,8).map(function(r){
+        var proj = state.projects.find(function(p){ return p.id === r.projectId; });
+        var pill = r.status === "succeeded"
+          ? '<span class="pill pill-success">Succeeded</span>'
+          : '<span class="pill pill-running">Running…</span>';
+        return '<div class="list-row" style="cursor:default">' +
+          '<div class="list-icon">▶</div>' +
+          '<div class="list-main">' +
+            '<div class="list-title">' + escapeHtml(proj ? proj.name : "unknown project") + '</div>' +
+            '<div class="list-sub mono">' + r.id + '</div>' +
+          '</div>' +
+          '<div class="list-side">' + pill +
+            '<div class="list-stat"><div class="k">duration</div><div class="v">' + (r.durationS ? r.durationS + "s" : "—") + '</div></div>' +
+          '</div>' +
+        '</div>';
+      }).join("") + '</div>';
+    } else {
+      runsHtml = '<div class="empty">No runs yet. Open a project and run the pipeline on an uploaded dataset.</div>';
+    }
+
+    return (
+      '<div class="tiles">' +
+        '<div class="tile"><div class="tile-label">Projects</div><div class="tile-value">' + projCount + '</div></div>' +
+        '<div class="tile"><div class="tile-label">Experiments</div><div class="tile-value">' + expCount + '</div></div>' +
+        '<div class="tile"><div class="tile-label">Runs (7d)</div><div class="tile-value">' + runs7d + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Recent runs</h2><span class="hint">Most recent pipeline executions across this workspace</span></div>' +
+        runsHtml +
+      '</div>'
+    );
+  }
+
+  function projectsBody(ws){
+    var projs = projectsIn(ws.id);
+    var dsCount = datasetsIn(ws.id).length;
+
+    var cardsHtml;
+    if(projs.length){
+      cardsHtml = '<div class="grid-cards">' + projs.map(function(p){
+        var pDs = datasetsForProject(p.id);
+        return '<button class="card" data-proj="' + p.id + '">' +
+          '<div class="card-top"><div class="card-icon">📁</div><div>' +
+            '<div class="card-title">' + escapeHtml(p.name) + '</div>' +
+            '<div class="card-sub">' + pDs.length + ' dataset' + (pDs.length===1?"":"s") + '</div>' +
+          '</div></div>' +
+          '<div class="card-meta">Created ' + fmtDate(p.createdAt) + '</div>' +
+        '</button>';
+      }).join("") + '</div>';
+    } else {
+      cardsHtml = '<div class="empty">No projects yet in this workspace.<br><button class="btn btn-primary" id="btnNewProjEmpty">+ New project</button></div>';
+    }
+
+    return (
+      '<div class="tiles">' +
+        '<div class="tile"><div class="tile-label">Projects</div><div class="tile-value">' + projs.length + '</div></div>' +
+        '<div class="tile"><div class="tile-label">Data sources</div><div class="tile-value">' + dsCount + '</div></div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Projects</h2>' +
+          '<button class="btn btn-primary btn-sm" id="btnNewProj">+ New project</button>' +
+        '</div>' +
+        cardsHtml +
+      '</div>'
+    );
+  }
+
+  function datasetsBody(ws){
+    var ds = datasetsIn(ws.id).sort(function(a,b){ return b.createdAt - a.createdAt; });
+    var listHtml;
+    if(ds.length){
+      listHtml = '<div class="list">' + ds.map(function(d){
+        var proj = state.projects.find(function(p){ return p.id === d.projectId; });
+        return '<button class="list-row" data-ds="' + d.id + '">' +
+          '<div class="list-icon">🗄️</div>' +
+          '<div class="list-main">' +
+            '<div class="list-title">' + escapeHtml(d.name) + '</div>' +
+            '<div class="list-sub">' + escapeHtml(proj ? proj.name : "—") + ' · ' + fmtDate(d.createdAt) + '</div>' +
+          '</div>' +
+          '<div class="list-side">' +
+            '<div class="list-stat"><div class="k">rows</div><div class="v">' + d.rows.toLocaleString() + '</div></div>' +
+            '<div class="list-stat"><div class="k">cols</div><div class="v">' + d.cols + '</div></div>' +
+            '<div class="list-stat"><div class="k">size</div><div class="v">' + fmtBytes(d.sizeBytes) + '</div></div>' +
+          '</div>' +
+        '</button>';
+      }).join("") + '</div>';
+    } else {
+      listHtml = '<div class="empty">No datasets uploaded yet. Upload a CSV from inside a project.</div>';
+    }
+    return (
+      '<div class="section">' +
+        '<div class="section-head"><h2>Datasets</h2><span class="hint">All CSV uploads across projects in this workspace</span></div>' +
+        listHtml +
+      '</div>'
+    );
+  }
+
+  function wireWorkspaceBodyEvents(main, ws){
+    var btnNewProj = document.getElementById("btnNewProj");
+    if(btnNewProj) btnNewProj.addEventListener("click", modalNewProject);
+    var btnNewProjEmpty = document.getElementById("btnNewProjEmpty");
+    if(btnNewProjEmpty) btnNewProjEmpty.addEventListener("click", modalNewProject);
+
+    main.querySelectorAll("[data-proj]").forEach(function(el){
+      el.addEventListener("click", function(){ openProject(el.dataset.proj); });
+    });
+    main.querySelectorAll("[data-ds]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var d = state.datasets.find(function(x){ return x.id === el.dataset.ds; });
+        if(d) modalDataset(d);
+      });
+    });
+  }
+
+  /* ---- Project detail ---- */
+  function renderProjectDetail(){
+    var proj = currentProject();
+    if(!proj){ backToProjects(); return; }
+    var ws = state.workspaces.find(function(w){ return w.id === proj.workspaceId; });
+    var main = document.getElementById("main");
+
+    var crumbParts = [
+      {label: "Workspaces", action: goWorkspaces},
+      {label: ws.name, action: function(){ openWorkspace(ws.id); }},
+      {label: proj.name}
+    ];
+
+    var ds = datasetsForProject(proj.id).sort(function(a,b){ return b.createdAt - a.createdAt; });
+    var runs = state.runs.filter(function(r){ return r.projectId === proj.id; }).sort(function(a,b){ return b.createdAt - a.createdAt; });
+    var hasDescription = !!(proj.description && proj.description.trim().length);
+
+    var dsHtml;
+    if(ds.length){
+      dsHtml = '<div class="list">' + ds.map(function(d){
+        var lastRun = runs.find(function(r){ return r.datasetId === d.id; });
+        var runBtn;
+        if(lastRun && lastRun.status === "running"){
+          runBtn = '<button class="btn btn-outline btn-sm" disabled>Running…</button>';
+        } else if(!hasDescription){
+          runBtn = '<button class="btn btn-accent btn-sm" data-run="' + d.id + '" disabled title="Add a business problem description first">▶ Run pipeline</button>';
+        } else {
+          runBtn = '<button class="btn btn-accent btn-sm" data-run="' + d.id + '">▶ Run pipeline</button>';
+        }
+        return '<div class="list-row" style="cursor:default">' +
+          '<div class="list-icon">🗄️</div>' +
+          '<div class="list-main">' +
+            '<div class="list-title" style="cursor:pointer" data-ds="' + d.id + '">' + escapeHtml(d.name) + '</div>' +
+            '<div class="list-sub">' + d.rows.toLocaleString() + ' rows · ' + d.cols + ' cols · ' + fmtBytes(d.sizeBytes) + '</div>' +
+          '</div>' +
+          '<div class="list-side">' + runBtn + '</div>' +
+        '</div>';
+      }).join("") + '</div>';
+    } else {
+      dsHtml = '<div class="empty">No dataset uploaded yet for this project.</div>';
+    }
+
+    var runsHtml;
+    if(runs.length){
+      runsHtml = '<div class="list">' + runs.slice(0,6).map(function(r){
+        var pill = r.status === "succeeded"
+          ? '<span class="pill pill-success">Succeeded</span>'
+          : '<span class="pill pill-running">Running…</span>';
+        return '<div class="list-row" style="cursor:default">' +
+          '<div class="list-icon">▶</div>' +
+          '<div class="list-main"><div class="list-title mono">' + r.id + '</div>' +
+          '<div class="list-sub">' + fmtDate(r.createdAt) + '</div></div>' +
+          '<div class="list-side">' + pill +
+            '<div class="list-stat"><div class="k">duration</div><div class="v">' + (r.durationS ? r.durationS+"s" : "—") + '</div></div>' +
+          '</div>' +
+        '</div>';
+      }).join("") + '</div>';
+    } else {
+      runsHtml = '<div class="empty">No runs yet for this project.</div>';
+    }
+
+    main.innerHTML =
+      crumbsHtml(crumbParts) +
+      '<div class="page-head"><div><h1>' + escapeHtml(proj.name) + '</h1><p>Upload a CSV data source and describe the business problem, then run the pipeline against it.</p></div></div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Business problem</h2><span class="hint">What decision or outcome should this model support?</span></div>' +
+        '<div class="field" style="margin-bottom:0;">' +
+          '<textarea id="bizDescription" rows="3" placeholder="e.g. Predict which customers will churn next month so retention offers can be targeted.">' + escapeHtml(proj.description || "") + '</textarea>' +
+        '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Upload dataset</h2><span class="hint">CSV files only</span></div>' +
+        '<div class="dropzone" id="dropzone">' +
+          '<div class="ico">⬆️</div>' +
+          '<div class="title">Drag & drop a CSV file here</div>' +
+          '<div class="sub">or</div>' +
+          '<label class="btn btn-outline btn-sm" style="margin-top:10px;" for="fileInput">Browse files</label>' +
+          '<input type="file" id="fileInput" accept=".csv,text/csv">' +
+        '</div>' +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Datasets</h2></div>' +
+        dsHtml +
+      '</div>' +
+      '<div class="section">' +
+        '<div class="section-head"><h2>Runs</h2></div>' +
+        runsHtml +
+      '</div>';
+
+    wireCrumbs(main, crumbParts);
+
+    var bizInput = document.getElementById("bizDescription");
+    bizInput.addEventListener("input", function(){
+      proj.description = bizInput.value;
+      saveState();
+      var filled = !!bizInput.value.trim().length;
+      main.querySelectorAll("[data-run]").forEach(function(btn){
+        var running = btn.textContent.indexOf("Running") !== -1;
+        if(running) return;
+        btn.disabled = !filled;
+        btn.title = filled ? "" : "Add a business problem description first";
+      });
+    });
+
+    var dz = document.getElementById("dropzone");
+    var fileInput = document.getElementById("fileInput");
+    fileInput.addEventListener("change", function(){
+      if(fileInput.files && fileInput.files[0]) handleCsvUpload(fileInput.files[0]);
+      fileInput.value = "";
+    });
+    ["dragenter","dragover"].forEach(function(evt){
+      dz.addEventListener(evt, function(e){ e.preventDefault(); dz.classList.add("drag"); });
+    });
+    ["dragleave","drop"].forEach(function(evt){
+      dz.addEventListener(evt, function(e){ e.preventDefault(); dz.classList.remove("drag"); });
+    });
+    dz.addEventListener("drop", function(e){
+      var f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f) handleCsvUpload(f);
+    });
+
+    main.querySelectorAll("[data-run]").forEach(function(el){
+      el.addEventListener("click", function(){ runPipeline(proj.id, el.dataset.run); });
+    });
+    main.querySelectorAll("[data-ds]").forEach(function(el){
+      el.addEventListener("click", function(){
+        var d = state.datasets.find(function(x){ return x.id === el.dataset.ds; });
+        if(d) modalDataset(d);
+      });
+    });
+  }
+
+  /* ---------------- wire static nav ---------------- */
+  document.getElementById("wsSwitcher").addEventListener("click", function(e){
+    e.stopPropagation();
+    toggleWsDropdown();
+  });
+  document.querySelectorAll("#sidebar .nav-item").forEach(function(el){
+    el.addEventListener("click", function(){ setTab(el.dataset.tab); });
+  });
+  document.addEventListener("click", function(e){
+    var wrap = document.querySelector(".ws-switcher-wrap");
+    if(wrap && !wrap.contains(e.target)) closeWsDropdown();
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){ closeModal(); closeWsDropdown(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

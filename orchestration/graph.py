@@ -310,6 +310,7 @@ def node_split(state: PipelineState) -> PipelineState:
         problem_type=plan.problem_type.value if plan.problem_type else "regression",
         time_column=plan.time_column,
         entity_column=entity_column,
+        target_column=plan.target_column,
     )
     return {"train_df": train_df, "test_df": test_df, "split_log": log}
 

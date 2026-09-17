@@ -71,6 +71,8 @@ def create_run(
     business_description: str,
     max_retries: int,
     dataset_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> str:
     queue = job_queue.get_default_queue()
     if not queue.can_accept():
@@ -85,6 +87,8 @@ def create_run(
         file_path=file_path,
         business_description=business_description,
         max_retries=max_retries,
+        workspace_id=workspace_id,
+        project_id=project_id,
     )
     logger.info("run_queued", extra={"run_id": run_id, "dataset_id": dataset_id})
 
@@ -124,7 +128,14 @@ def cancel_run(run_id: str) -> Optional[dict]:
 
 
 def _row_to_response(row: dict) -> dict:
-    record: dict = {"run_id": row["run_id"], "status": row["status"], "created_at": row["created_at"]}
+    record: dict = {
+        "run_id": row["run_id"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "dataset_id": row.get("dataset_id"),
+        "workspace_id": row.get("workspace_id"),
+        "project_id": row.get("project_id"),
+    }
     if row["status"] == db.NEEDS_CLARIFICATION:
         record["clarification_question"] = row["clarification_question"]
     elif row["status"] == db.COMPLETED:
@@ -155,8 +166,16 @@ def get_run(run_id: str) -> Optional[dict]:
     return _row_to_response(row) if row is not None else None
 
 
-def list_runs(limit: int = 50, status: Optional[str] = None) -> list[dict]:
-    return [_row_to_response(row) for row in db.list_runs(limit=limit, status=status)]
+def list_runs(
+    limit: int = 50,
+    status: Optional[str] = None,
+    project_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> list[dict]:
+    return [
+        _row_to_response(row)
+        for row in db.list_runs(limit=limit, status=status, project_id=project_id, workspace_id=workspace_id)
+    ]
 
 
 def _on_progress(run_id: str, node_name: str, updates: dict) -> None:

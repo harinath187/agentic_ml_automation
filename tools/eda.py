@@ -6,6 +6,19 @@ import pandas as pd
 
 from tools.cleaning import NUMERIC_TEXT_MIN_PARSE_RATIO, _parse_numeric_text
 
+HISTOGRAM_BINS = 12
+
+
+def _histogram(series: pd.Series) -> dict:
+    if series.nunique() <= 1:
+        return {"counts": [int(len(series))], "min": float(series.min()), "max": float(series.max())}
+    counts, edges = np.histogram(series, bins=HISTOGRAM_BINS)
+    return {
+        "counts": [int(count) for count in counts],
+        "min": float(edges[0]),
+        "max": float(edges[-1]),
+    }
+
 
 def run_eda(df: pd.DataFrame) -> dict:
     cols = list(df.columns)
@@ -58,6 +71,12 @@ def run_eda(df: pd.DataFrame) -> dict:
         distributions[col] = {
             "skew": round(float(series.skew()), 3),
             "kurtosis": round(float(series.kurtosis()), 3),
+            "min": float(series.min()),
+            "q1": float(series.quantile(0.25)),
+            "median": float(series.median()),
+            "q3": float(series.quantile(0.75)),
+            "max": float(series.max()),
+            "histogram": _histogram(series),
         }
 
     datetime_cols = []

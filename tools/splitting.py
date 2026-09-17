@@ -13,6 +13,7 @@ def split_data(
     test_size: float = 0.2,
     time_column: Optional[str] = None,
     entity_column: Optional[str] = None,
+    target_column: Optional[str] = None,
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """entity_column, when provided (pooled forecasting across entities),
@@ -48,6 +49,11 @@ def split_data(
 
     log["train_rows"] = int(len(train_df))
     log["test_rows"] = int(len(test_df))
+    if problem_type == "classification" and target_column in df.columns:
+        log["class_distribution"] = {
+            "train": {str(label): int(count) for label, count in train_df[target_column].value_counts().items()},
+            "test": {str(label): int(count) for label, count in test_df[target_column].value_counts().items()},
+        }
     return train_df, test_df, log
 
 

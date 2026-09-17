@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getDatasetEda } from "../api";
 import ModelBarChart from "./ModelBarChart";
 import PlanSummary from "./PlanSummary";
 
@@ -24,6 +25,71 @@ function DefinitionList({ rows }) {
 
 function Unavailable({ label }) {
   return <p className="muted">{label} is not available for this run.</p>;
+}
+
+function MissingValuesChart({ values }) {
+  const entries = Object.entries(values || {}).sort(([, a], [, b]) => b - a);
+  if (!entries.length) return null;
+  const max = Math.max(...entries.map(([, value]) => value), 1);
+  return (
+    <div className="eda-chart-list">
+      {entries.map(([column, value]) => (
+        <div className="eda-chart-row" key={column}>
+          <span className="eda-chart-label" title={column}>{column}</span>
+          <div className="eda-chart-track"><div className="eda-chart-fill missing" style={{ width: `${(value / max) * 100}%` }} /></div>
+          <span className="eda-chart-value">{value}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OutlierBoxPlot({ values, outliers }) {
+  const entries = Object.entries(values || {}).filter(([, info]) => info?.min !== undefined);
+  if (!entries.length) return null;
+  return (
+    <div className="eda-boxplot-list">
+      {entries.map(([column, info]) => {
+        const range = Math.max(info.max - info.min, 1);
+        const position = (value) => `${((value - info.min) / range) * 100}%`;
+        return (
+          <div className="eda-boxplot-row" key={column}>
+            <span className="eda-chart-label" title={column}>{column}</span>
+            <div className="eda-boxplot" aria-label={`${column}: ${info.count} outliers`}>
+              <span className="eda-boxplot-whisker" style={{ left: position(info.min), width: `${((info.max - info.min) / range) * 100}%` }} />
+              <span className="eda-boxplot-cap" style={{ left: position(info.min) }} />
+              <span className="eda-boxplot-cap" style={{ left: position(info.max) }} />
+              <span className="eda-boxplot-box" style={{ left: position(info.q1), width: `${((info.q3 - info.q1) / range) * 100}%` }} />
+              <span className="eda-boxplot-median" style={{ left: position(info.median) }} />
+            </div>
+            <span className="eda-chart-value">{outliers?.[column]?.count || 0} outliers</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DistributionHistogram({ distributions }) {
+  const entries = Object.entries(distributions || {}).filter(([, info]) => info?.histogram?.counts?.length);
+  if (!entries.length) return null;
+  return (
+    <div className="eda-histogram-grid">
+      {entries.map(([column, info]) => {
+        const counts = info.histogram.counts;
+        const max = Math.max(...counts, 1);
+        return (
+          <figure className="eda-histogram" key={column}>
+            <figcaption><strong>{column}</strong><span>skew {info.skew}</span></figcaption>
+            <div className="eda-histogram-bars" aria-label={`${column} distribution histogram`}>
+              {counts.map((count, index) => <span key={index} style={{ height: `${Math.max(3, (count / max) * 100)}%` }} title={`${count} values`} />)}
+            </div>
+            <div className="eda-histogram-axis"><span>{info.histogram.min.toFixed(2)}</span><span>{info.histogram.max.toFixed(2)}</span></div>
+          </figure>
+        );
+      })}
+    </div>
+  );
 }
 
 function OverviewTab({ runRecord }) {
@@ -101,7 +167,7 @@ function DataQualityTab({ runRecord }) {
 
 function EdaTab({ runRecord }) {
   const eda = runRecord.eda_summary;
-  if (!eda) return <Unavailable label="EDA summary" />;
+  const [snapshot, setSnapshot] = useState(null);
 
   const {
     missing_value_pct: missingValuePct,
@@ -110,42 +176,70 @@ function EdaTab({ runRecord }) {
     distributions,
     datetime_columns: datetimeColumns,
     seasonality_notes: seasonalityNotes,
-  } = eda;
+  } = eda || {};
+
+  const hasHistogramData = Object.values(distributions || {}).some(
+    (info) => info?.min !== undefined && info?.histogram?.counts?.length,
+  );
+
+  useEffect(() => {
+    if (!runRecord.dataset_id || hasHistogramData) return undefined;
+    let cancelled = false;
+    getDatasetEda(runRecord.dataset_id).then((result) => {
+      if (!cancelled) setSnapshot(result);
+    }).catch(() => {
+      // The report remains usable with its embedded summary if the snapshot is unavailable.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [runRecord.dataset_id, hasHistogramData]);
+
+  if (!eda) return <Unavailable label="EDA summary" />;
+
+  const snapshotDistributions = Object.fromEntries(
+    (snapshot?.columns || [])
+      .filter((column) => column.kind === "numeric" && column.stats)
+      .map((column) => [
+        column.name,
+        {
+          ...(distributions?.[column.name] || {}),
+          ...column.stats,
+          histogram: {
+            counts: column.histogram || [],
+            min: column.stats.min,
+            max: column.stats.max,
+          },
+        },
+      ]),
+  );
+  const chartDistributions = hasHistogramData ? distributions : snapshotDistributions;
 
   const numericCols = Object.keys(correlationMatrix || {});
+  const boxPlotValues = Object.fromEntries(
+    Object.entries(chartDistributions || {}).map(([column, info]) => [column, info]),
+  );
 
   return (
     <div>
       {missingValuePct && Object.keys(missingValuePct).length > 0 && (
         <>
           <h3>Missing values</h3>
-          <DefinitionList
-            rows={Object.entries(missingValuePct).map(([col, pct]) => [col, `${pct}%`])}
-          />
+          <MissingValuesChart values={missingValuePct} />
         </>
       )}
 
-      {outliersIqr && Object.keys(outliersIqr).length > 0 && (
+      {chartDistributions && Object.keys(chartDistributions).length > 0 && (
         <>
           <h3>Outliers (IQR method)</h3>
-          <DefinitionList
-            rows={Object.entries(outliersIqr).map(([col, info]) => [
-              col,
-              `${info.count} (${info.pct}%)`,
-            ])}
-          />
+          <OutlierBoxPlot values={boxPlotValues} outliers={outliersIqr} />
         </>
       )}
 
-      {distributions && Object.keys(distributions).length > 0 && (
+      {chartDistributions && Object.keys(chartDistributions).length > 0 && (
         <>
-          <h3>Distributions</h3>
-          <DefinitionList
-            rows={Object.entries(distributions).map(([col, d]) => [
-              col,
-              `skew ${d.skew}, kurtosis ${d.kurtosis}`,
-            ])}
-          />
+          <h3>Distribution histograms</h3>
+          <DistributionHistogram distributions={chartDistributions} />
         </>
       )}
 
@@ -197,6 +291,15 @@ function EdaTab({ runRecord }) {
   );
 }
 
+function formatLogValue(value) {
+  const isEmptyObject =
+    value && typeof value === "object" && !Array.isArray(value) && !Object.keys(value).length;
+  if (value === null || value === undefined || (Array.isArray(value) && !value.length) || isEmptyObject) {
+    return <span className="plan-empty">None</span>;
+  }
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
 function LogSection({ title, log }) {
   if (!log) return null;
   const entries = Object.entries(log);
@@ -208,10 +311,46 @@ function LogSection({ title, log }) {
         {entries.map(([key, value]) => (
           <div className="plan-row" key={key}>
             <dt>{key}</dt>
-            <dd>{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+            <dd>{formatLogValue(value)}</dd>
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+function ClassDistributionChart({ distribution }) {
+  const labels = Array.from(new Set([
+    ...Object.keys(distribution?.train || {}),
+    ...Object.keys(distribution?.test || {}),
+  ]));
+  if (!labels.length) return null;
+  const max = Math.max(...labels.flatMap((label) => [
+    distribution.train?.[label] || 0,
+    distribution.test?.[label] || 0,
+  ]), 1);
+
+  return (
+    <div className="class-distribution-chart">
+      <div className="class-distribution-legend">
+        <span><i className="class-distribution-swatch train" />Train</span>
+        <span><i className="class-distribution-swatch test" />Test</span>
+      </div>
+      <div className="class-distribution-bars">
+        {labels.map((label) => (
+          <div className="class-distribution-group" key={label}>
+            <div className="class-distribution-columns">
+              {[["train", distribution.train?.[label] || 0], ["test", distribution.test?.[label] || 0]].map(([split, count]) => (
+                <div className="class-distribution-column" key={split}>
+                  <span className="class-distribution-count">{count}</span>
+                  <div className={`class-distribution-bar ${split}`} style={{ height: `${Math.max(3, (count / max) * 150)}px` }} />
+                </div>
+              ))}
+            </div>
+            <span className="class-distribution-label" title={label}>{label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -227,6 +366,12 @@ function PreprocessingTab({ runRecord }) {
       <LogSection title="Cleaning" log={cleaning_log} />
       <LogSection title="Feature engineering" log={feature_log} />
       <LogSection title="Train/test split" log={split_log} />
+      {split_log?.class_distribution && (
+        <section className="class-distribution-section">
+          <h3>Class distribution</h3>
+          <ClassDistributionChart distribution={split_log.class_distribution} />
+        </section>
+      )}
     </div>
   );
 }
@@ -392,6 +537,16 @@ function ModelsTab({ runRecord }) {
   );
 }
 
+function RecommendationProseSection({ title, text }) {
+  if (!text) return null;
+  return (
+    <div className="recommendation-section">
+      <h4>{title}</h4>
+      <p>{text}</p>
+    </div>
+  );
+}
+
 function RecommendationTab({ runRecord }) {
   const rec = runRecord.recommendation;
   if (!rec) return <Unavailable label="Recommendation" />;
@@ -402,18 +557,35 @@ function RecommendationTab({ runRecord }) {
           <strong>Flagged for review:</strong> {rec.flag_reason}
         </div>
       )}
-      <h3>Recommended model: {rec.recommended_model}</h3>
-      <DefinitionList
-        rows={[
-          ["Reason", rec.reason],
-          ["Performance summary", rec.performance_summary],
-          ["Comparison to alternatives", rec.comparison_to_alternatives],
-          ["How it works", rec.explanation_narrative],
-          ["Top features", rec.cited_top_features?.join(", ")],
-          ["Limitations", rec.limitations],
-          ["Confidence", rec.confidence_statement],
-        ]}
-      />
+
+      <div className="recommendation-hero">
+        <div>
+          <span className="muted">Recommended model</span>
+          <h3>{rec.recommended_model}</h3>
+        </div>
+        {rec.confidence_statement && (
+          <span className="confidence-badge" title={rec.confidence_statement}>
+            {rec.confidence_statement}
+          </span>
+        )}
+      </div>
+
+      {rec.cited_top_features?.length > 0 && (
+        <div className="recommendation-section">
+          <h4>Top features</h4>
+          <div className="chip-list">
+            {rec.cited_top_features.map((f) => (
+              <span className="chip" key={f}>{f}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <RecommendationProseSection title="Reason" text={rec.reason} />
+      <RecommendationProseSection title="Performance summary" text={rec.performance_summary} />
+      <RecommendationProseSection title="Comparison to alternatives" text={rec.comparison_to_alternatives} />
+      <RecommendationProseSection title="How it works" text={rec.explanation_narrative} />
+      <RecommendationProseSection title="Limitations" text={rec.limitations} />
     </div>
   );
 }
