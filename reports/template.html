@@ -189,6 +189,21 @@
   {% else %}
   <p class="meta">Preprocessing was handled per-entity for this run's scope strategy and is not aggregated here.</p>
   {% endif %}
+  {% if data_quality_report %}
+  <h3>Data quality checks</h3>
+  <table>
+    <tr><th>Suspicious/ID-like columns</th><td>{{ data_quality_report.suspicious_columns|join(', ') if data_quality_report.suspicious_columns else "none found" }}</td></tr>
+    <tr><th>Possible leakage columns</th><td>{{ data_quality_report.possible_leakage_columns|join(', ') if data_quality_report.possible_leakage_columns else "none found" }}</td></tr>
+    <tr><th>Constant columns</th><td>{{ data_quality_report.constant_columns|join(', ') if data_quality_report.constant_columns else "none found" }}</td></tr>
+    <tr><th>Near-constant columns</th><td>{{ data_quality_report.near_constant_columns|join(', ') if data_quality_report.near_constant_columns else "none found" }}</td></tr>
+    <tr><th>Possible sentinel-missing values</th><td>
+      {% if data_quality_report.possible_sentinel_missing %}
+        {% for col, info in data_quality_report.possible_sentinel_missing.items() %}{{ col }} ({{ info.value }}, {{ info.pct }}% of rows){{ ", " if not loop.last }}{% endfor %}
+      {% else %}none found{% endif %}
+    </td></tr>
+  </table>
+  <p class="meta">These are the raw checks tools/profiling.py's quality_analysis ran on the full dataset, independent of what feature selection below actually dropped - an empty list here means the check ran and found nothing, not that it didn't run.</p>
+  {% endif %}
   {% if feature_selection_log %}
   <h3>Feature selection</h3>
   <table>
@@ -371,6 +386,10 @@
   </table>
   {% else %}
   <p class="meta">{{ explain.reason_unsupported or (model_comparison.winner ~ " does not reliably support explainability techniques - this is expected for simple baselines and is not an error.") }}</p>
+  {% endif %}
+  {% set dexplain = model_comparison.dataset_explainability if model_comparison else none %}
+  {% if dexplain and dexplain.consensus_ranking %}
+  <p class="meta">Cross-model consensus (aggregated across {{ dexplain.num_models_aggregated }} successfully-explained candidate(s)): {% for row in dexplain.consensus_ranking[:5] %}{{ row.feature }} (agreed by {{ row.models_included }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
   {% endif %}
   {% else %}
   <p class="meta">Explainability was not computed for this run's scope strategy or recommended model.</p>

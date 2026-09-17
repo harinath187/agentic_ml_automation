@@ -54,6 +54,33 @@ dict threaded node-to-node - the DataFrame itself lives only in this
 process's local state and is never serialized to an LLM; only
 `schema_summary`/`eda_summary`/`metrics` are.
 
+### High-level flow
+
+The gist, for anyone who doesn't need the full branching diagram below: you
+give it a dataset + a plain-English business goal, everything in white runs
+locally with pandas/AutoGluon and never calls an LLM, and only the four
+purple steps ever talk to the LLM - and even then only with schema/stats/
+metrics text, never your actual data rows.
+
+```mermaid
+flowchart TD
+    U([You: upload dataset\n+ business description]) --> DI[Data Intelligence\nprofile + quality + problem detection\nno LLM]
+    DI --> PL[["Planner Agent (LLM)\nreads schema/stats only ->\nproposes ExperimentPlan"]]
+    PL --> TR[Train candidate models\nAutoGluon + classical\nno LLM]
+    TR --> EV[["Evaluator Agent (LLM)\nreads metrics only ->\nretry / accept / stop"]]
+    EV -- retry --> TR
+    EV -- accept --> RC[["Recommendation Agent (LLM)\nexplains the already-decided\nwinner, can't change it"]]
+    RC --> RP[["Reporter Agent (LLM)\nwrites executive summary prose\nevery number is deterministic"]]
+    RP --> OUT([HTML report])
+
+    classDef llm fill:#e9d5ff,stroke:#7e22ce,color:#3b0764;
+    classDef det fill:#ffffff,stroke:#64748b,color:#1e293b;
+    class PL,EV,RC,RP llm;
+    class DI,TR det;
+```
+
+### Full branching graph
+
 ```mermaid
 flowchart TD
     A[ingest] --> B[profile_data]

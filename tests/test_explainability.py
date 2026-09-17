@@ -11,6 +11,7 @@ from agents.schemas import ProblemType
 from tools.explainability import (
     compute_permutation_importance,
     compute_shap_importance,
+    explain_dataset_consensus,
     explain_forecast,
     explain_tabular_model,
     shap_unavailable_reason,
@@ -262,3 +263,68 @@ def test_explain_forecast_never_raises_on_malformed_data():
     df = pd.DataFrame({"date": ["not", "a", "date"], "sales": [1, 2, 3]})
     result = explain_forecast(df, "sales", "date", seasonal_period=7)
     assert result is not None  # degrades gracefully, never raises
+
+
+# --- dataset-level consensus (classification/regression) ----------------------
+
+
+def _result_with_importance(name: str, status: str, top_features: list[str]) -> dict:
+    return {
+        "model_name": name,
+        "status": status,
+        "explainability": {
+            "feature_importance": [{"feature": f, "importance": float(len(top_features) - i)} for i, f in enumerate(top_features)],
+            "permutation_importance": [],
+            "shap_importance": [],
+        }
+        if top_features
+        else None,
+    }
+
+
+def test_explain_dataset_consensus_none_with_fewer_than_two_usable_models():
+    results = [_result_with_importance("a", "success", ["f1", "f2"])]
+    assert explain_dataset_consensus(results) is None
+
+
+def test_explain_dataset_consensus_ranks_by_agreement_then_average_rank():
+    results = [
+        _result_with_importance("rf", "success", ["glucose", "bmi", "age"]),
+        _result_with_importance("logreg", "success", ["glucose", "age", "bmi"]),
+        _result_with_importance("xgb", "success", ["bmi", "glucose", "age"]),
+    ]
+    consensus = explain_dataset_consensus(results)
+
+    assert consensus is not None
+    assert consensus["num_models_aggregated"] == 3
+    top = consensus["consensus_ranking"][0]
+    assert top["feature"] == "glucose"  # ranked #1 by 2/3 models, #2 by the third
+    assert top["models_included"] == 3
+
+
+def test_explain_dataset_consensus_ignores_failed_and_unexplained_candidates():
+    results = [
+        _result_with_importance("rf", "success", ["f1", "f2"]),
+        _result_with_importance("logreg", "success", ["f1", "f2"]),
+        _result_with_importance("broken", "failed", []),
+        _result_with_importance("baseline", "success", []),  # no usable importance
+    ]
+    consensus = explain_dataset_consensus(results)
+
+    assert consensus is not None
+    assert consensus["num_models_aggregated"] == 2  # only rf and logreg counted
+
+
+def test_explain_dataset_consensus_accepts_model_result_objects_not_just_dicts():
+    from tools.model_registry import ModelResult
+
+    def make_result(name, features):
+        r = ModelResult(model_name=name, status="success")
+        r.explainability = {"feature_importance": [{"feature": f, "importance": 1.0} for f in features], "permutation_importance": [], "shap_importance": []}
+        return r
+
+    results = [make_result("a", ["f1", "f2"]), make_result("b", ["f1", "f2"])]
+    consensus = explain_dataset_consensus(results)
+
+    assert consensus is not None
+    assert consensus["consensus_ranking"][0]["feature"] == "f1"

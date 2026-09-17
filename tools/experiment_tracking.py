@@ -170,6 +170,14 @@ class ExperimentRecord(BaseModel):
     problem_definition: Optional[dict] = None
     experiment_plan: Optional[dict] = None
     validation_strategy: Optional[dict] = None
+    quality_report: Optional[dict] = Field(
+        default=None,
+        description="tools/profiling.py's analyze_data_quality() DataQualityReport (missing values, "
+        "duplicates, possible outliers, invalid dtypes, suspicious/ID-like columns, possible leakage, "
+        "possible sentinel-missing values) - the raw checks, independent of feature_selection below "
+        "(what was actually dropped as a result). Persisted even when every list came back empty, so "
+        "an empty feature_selection.dropped can be told apart from 'quality_analysis never ran'.",
+    )
     feature_selection: Optional[dict] = Field(
         default=None,
         description="tools/feature_selection.py's kept/dropped column log. None for hierarchical "
@@ -225,6 +233,7 @@ def build_record(
     decision = state.get("decision")
     dataset_profile = state.get("dataset_profile")
     problem_definition = state.get("problem_definition")
+    data_quality_report = state.get("data_quality_report")
 
     candidate_models: list[CandidateModelRecord] = []
     errors: list[str] = []
@@ -279,6 +288,7 @@ def build_record(
         validation_strategy=(
             plan.validation_strategy.model_dump(mode="json") if plan and plan.validation_strategy else None
         ),
+        quality_report=data_quality_report.model_dump(mode="json") if data_quality_report else None,
         feature_selection=state.get("feature_selection_log"),
         candidate_models=candidate_models,
         metrics_summary={k: v for k, v in metrics.items() if k != "candidate_results"},

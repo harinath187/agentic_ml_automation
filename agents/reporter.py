@@ -82,21 +82,21 @@ def generate_report(
 ) -> str:
     prompt_parts = [
         f"Business description:\n{business_description}",
-        f"Pipeline plan (JSON):\n{plan.model_dump_json(indent=2)}",
-        f"Evaluator decision (JSON):\n{decision.model_dump_json(indent=2)}",
+        f"Pipeline plan (JSON):\n{plan.model_dump_json()}",
+        f"Evaluator decision (JSON):\n{decision.model_dump_json()}",
     ]
     if dataset_profile is not None:
-        prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json()}")
     if data_quality_report is not None:
-        prompt_parts.append(f"Data quality report (JSON):\n{data_quality_report.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Data quality report (JSON):\n{data_quality_report.model_dump_json()}")
     if problem_definition is not None:
-        prompt_parts.append(f"Problem definition (JSON):\n{problem_definition.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Problem definition (JSON):\n{problem_definition.model_dump_json()}")
     if recommendation is not None:
         # Already small and verified against the full model_comparison by
         # agents/recommender.py's validate_recommendation - sufficient on its
         # own for executive_summary/approach_narrative, so the full `metrics`
         # dict (which duplicates model_comparison) is never sent here.
-        prompt_parts.append(f"Recommendation (JSON):\n{recommendation.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Recommendation (JSON):\n{recommendation.model_dump_json()}")
     else:
         # Edge case: the recommender step didn't run (e.g. no candidate
         # produced a usable result). Fall back to a trimmed model_comparison
@@ -107,20 +107,22 @@ def generate_report(
             if raw_comparison:
                 comparison = ModelComparison.model_validate(raw_comparison)
                 prompt_parts.append(
-                    f"Model comparison summary (JSON):\n{json.dumps(to_llm_summary(comparison), indent=2)}"
+                    f"Model comparison summary (JSON):\n{json.dumps(to_llm_summary(comparison), separators=(',', ':'))}"
                 )
         except Exception as exc:  # noqa: BLE001 - prompt-only fallback, never fails report generation
             logger.warning("reporter_model_comparison_summary_failed", extra={"error": str(exc)})
     if cleaning_log is not None:
-        prompt_parts.append(f"Cleaning log (JSON):\n{json.dumps(cleaning_log, indent=2)}")
+        prompt_parts.append(f"Cleaning log (JSON):\n{json.dumps(cleaning_log, separators=(',', ':'))}")
     if feature_log is not None:
-        prompt_parts.append(f"Feature engineering log (JSON):\n{json.dumps(feature_log, indent=2)}")
+        prompt_parts.append(f"Feature engineering log (JSON):\n{json.dumps(feature_log, separators=(',', ':'))}")
     if feature_selection_log is not None:
         # Absent for hierarchical scope (no selection applies there) - a
         # missing/None value here is a valid, expected state, not an error.
-        prompt_parts.append(f"Feature selection log (JSON):\n{json.dumps(feature_selection_log, indent=2)}")
+        prompt_parts.append(
+            f"Feature selection log (JSON):\n{json.dumps(feature_selection_log, separators=(',', ':'))}"
+        )
     if split_log is not None:
-        prompt_parts.append(f"Split log (JSON):\n{json.dumps(split_log, indent=2)}")
+        prompt_parts.append(f"Split log (JSON):\n{json.dumps(split_log, separators=(',', ':'))}")
 
     user_prompt = "\n\n".join(prompt_parts)
     content = call_llm_json(SYSTEM_PROMPT, user_prompt, ReportContent, caller_name="agents.reporter")

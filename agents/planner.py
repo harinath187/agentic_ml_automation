@@ -17,10 +17,12 @@ from agents.schemas import (
     DatasetProfile,
     ExperimentPlan,
     ProblemDefinition,
+    ProblemType,
     TargetAnalysis,
 )
+from tools.model_registry import get_registry_for_problem_type
 
-SYSTEM_PROMPT = """You are the Planner Agent in an automated ML pipeline.
+_SYSTEM_PROMPT_TEMPLATE = """You are the Planner Agent in an automated ML pipeline.
 You are given a business problem description, a dataset schema summary
 (column names, dtypes, missing %, cardinality/unique-value counts, and
 aggregated stats only - never raw rows), and - when available - a
@@ -29,7 +31,11 @@ a DatasetProfile (row/column counts, per-column type/cardinality/missingness,
 duplicate rows, constant columns), a TargetAnalysis (candidate target columns
 with cardinality/type signals - a shortlist, not a decision), a
 DataQualityReport (missing values, duplicates, possible outliers, invalid
-dtypes, suspicious ID-like columns, heuristic leakage flags), and a
+dtypes, suspicious ID-like columns, heuristic leakage flags, and
+possible_sentinel_missing - numeric columns where a recurring value, e.g. 0,
+-1, or 9999, sits statistically implausibly far from the rest of that
+column's distribution and may be a missing-data placeholder rather than a
+genuine measurement), and a
 ProblemDefinition (deterministic classification/regression/forecasting
 detection, plus time-series signals - datetime column, item/entity column,
 frequency, time range, missing periods, seasonality, trend - when a datetime
@@ -147,6 +153,17 @@ Your job is to decide:
    - List preprocessing steps needed before training, informed by
      DataQualityReport (e.g. ['impute_missing', 'encode_categoricals',
      'cap_outliers']).
+   - If DataQualityReport.possible_sentinel_missing flags a column, use
+     domain judgment from the business description and column name/context
+     to decide whether those values are genuinely missing data (e.g. a "0"
+     in a biological measurement column like glucose or blood pressure is
+     usually implausible and should be treated as missing) or a legitimate
+     value (e.g. a "0" in a count/quantity column is often real). This is a
+     heuristic flag, not a certainty - it is never auto-imputed upstream.
+     When you judge it to be missing data, add a step like
+     ['treat_zero_as_missing:<column>'] to preprocessing_requirements and
+     explain the reasoning in validation_notes or reasoning; when you judge
+     it legitimate, leave it alone and say so.
 
 8. PIPELINE STEPS
    - An ordered list of steps to run, reflecting your decisions above
@@ -158,11 +175,7 @@ Your job is to decide:
      catalogue below - use these exact names so they resolve without
      ambiguity (close variants like "Random Forest" are tolerated, but exact
      names are preferred):
-       classification: baseline, logistic_regression, random_forest,
-         xgboost, lightgbm
-       regression: baseline, linear_regression, random_forest, xgboost,
-         lightgbm
-       forecasting: naive, seasonal_naive, ets, arima, sarima
+{model_catalogue}
    - Always include at least one simple baseline (baseline/naive), plus 1-3
      others appropriate to the data size and scope strategy. Keep the list
      short for "per_entity" or "single_entity" since it is trained once per
@@ -184,6 +197,30 @@ and must be made deliberately or asked about explicitly.
 """
 
 
+def _model_catalogue_block() -> str:
+    """Builds the CANDIDATE MODEL FAMILIES catalogue text straight from
+    tools/model_registry.py's REGISTRY, rather than a hardcoded name list
+    kept in sync by hand - a new ModelDefinition registered there becomes an
+    option the Planner can propose immediately, with no second edit here.
+    Registry order is preserved (baseline/naive listed first in each
+    registry function), so the prompt's own "always include a baseline
+    first" guidance lines up with the order shown.
+    """
+    rows = []
+    for label, problem_type in (
+        ("classification", ProblemType.CLASSIFICATION),
+        ("regression", ProblemType.REGRESSION),
+        ("forecasting", ProblemType.FORECASTING),
+    ):
+        names = [d.name for d in get_registry_for_problem_type(problem_type)]
+        rows.append(f"      {label}: {', '.join(names)}")
+    return "\n".join(rows)
+
+
+def _build_system_prompt() -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(model_catalogue=_model_catalogue_block())
+
+
 def build_plan(
     business_description: str,
     schema_summary: dict,
@@ -194,16 +231,16 @@ def build_plan(
 ) -> ExperimentPlan:
     prompt_parts = [
         f"Business problem description:\n{business_description}",
-        f"Dataset schema summary (JSON):\n{json.dumps(schema_summary, indent=2)}",
+        f"Dataset schema summary (JSON):\n{json.dumps(schema_summary, separators=(',', ':'))}",
     ]
     if dataset_profile is not None:
-        prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json()}")
     if target_analysis is not None:
-        prompt_parts.append(f"Target analysis (JSON):\n{target_analysis.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Target analysis (JSON):\n{target_analysis.model_dump_json()}")
     if quality_report is not None:
-        prompt_parts.append(f"Data quality report (JSON):\n{quality_report.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Data quality report (JSON):\n{quality_report.model_dump_json()}")
     if problem_definition is not None:
-        prompt_parts.append(f"Problem definition (JSON):\n{problem_definition.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Problem definition (JSON):\n{problem_definition.model_dump_json()}")
 
     user_prompt = "\n\n".join(prompt_parts)
-    return call_llm_json(SYSTEM_PROMPT, user_prompt, ExperimentPlan)
+    return call_llm_json(_build_system_prompt(), user_prompt, ExperimentPlan)

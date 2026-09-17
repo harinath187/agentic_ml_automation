@@ -78,9 +78,13 @@ class ModelComparison(BaseModel):
     winner_reasoning: str = ""
     dataset_explainability: Optional[dict] = Field(
         default=None,
-        description="Forecasting only: tools/explainability.py's dataset-level trend/seasonality/"
-        "decomposition ExplainabilityResult (as a dict) - a property of the historical series, not "
-        "of any one candidate model, so it lives here rather than on a per-model EvaluationResult.",
+        description="A property of the dataset/run as a whole, not of any one candidate model, so it "
+        "lives here rather than on a per-model EvaluationResult. Shape depends on problem_type: "
+        "forecasting gets tools/explainability.py's explain_forecast() (trend/seasonality/decomposition, "
+        "an ExplainabilityResult as a dict); classification/regression get explain_dataset_consensus() "
+        "(a cross-model feature-importance consensus ranking, {num_models_aggregated, consensus_ranking}). "
+        "Null when there weren't enough successfully-explained candidates to compute either (forecasting: "
+        "insufficient history; classification/regression: fewer than 2 candidates with usable importance).",
     )
 
 
@@ -178,18 +182,35 @@ def compute_metrics(
     return compute_regression_metrics(y_true, y_pred)
 
 
-def select_primary_metric(problem_type: ProblemType, results: list[EvaluationResult]) -> tuple[str, bool]:
+def select_primary_metric(
+    problem_type: ProblemType, results: list[EvaluationResult], preferred_metrics: Optional[list[str]] = None
+) -> tuple[str, bool]:
     """Deterministic - never asks the LLM.
 
-    Classification prefers ROC-AUC only when EVERY successfully-scored
-    candidate reports it (otherwise a model that legitimately lacks it, e.g.
-    a multiclass classifier, would be unfairly excluded from ranking); it
-    falls back to accuracy otherwise. Regression and forecasting always rank
-    on RMSE, since it's the one metric every candidate here can always
-    produce (MAPE/MASE are situational - "where appropriate"/"where
-    possible" - so they can't be relied on as the ranking metric).
+    preferred_metrics (plan.evaluation_metrics, in priority order) is tried
+    first: the first named metric that EVERY successfully-scored candidate
+    actually reports wins, so a candidate missing it (e.g. a multiclass
+    classifier lacking roc_auc) can't get unfairly excluded from ranking on a
+    metric it was never able to produce. This is the single source of truth
+    for "which metric did we rank on" - tools/model_runner.py's top-level
+    metrics["eval_metric"] is set FROM this function's result (via
+    ModelComparison.primary_metric), never computed independently, so the two
+    can no longer disagree.
+
+    If preferred_metrics is empty/unset, or none of its entries are usable,
+    falls back to the previous default policy: classification prefers
+    ROC-AUC only when every successfully-scored candidate reports it,
+    otherwise accuracy; regression and forecasting always rank on RMSE,
+    since it's the one metric every candidate here can always produce
+    (MAPE/MASE are situational - "where appropriate"/"where possible" - so
+    they can't be relied on as the ranking metric).
     """
     successful_metrics = [r.metrics for r in results if r.status == "success" and r.metrics]
+    if successful_metrics and preferred_metrics:
+        for raw_name in preferred_metrics:
+            key = raw_name.strip().lower()
+            if key and all(m.get(key) is not None for m in successful_metrics):
+                return key, key not in LOWER_IS_BETTER_METRICS
     if problem_type == ProblemType.CLASSIFICATION:
         if successful_metrics and all(m.get("roc_auc") is not None for m in successful_metrics):
             return "roc_auc", True
@@ -199,9 +220,12 @@ def select_primary_metric(problem_type: ProblemType, results: list[EvaluationRes
     return "score", True
 
 
-def build_model_comparison(problem_type: ProblemType, results: list[EvaluationResult]) -> ModelComparison:
+def build_model_comparison(
+    problem_type: ProblemType, results: list[EvaluationResult], preferred_metrics: Optional[list[str]] = None
+) -> ModelComparison:
     """The ranking engine itself:
-    1. select_primary_metric() picks the metric
+    1. select_primary_metric() picks the metric (honoring preferred_metrics -
+       normally plan.evaluation_metrics - ahead of the problem-type default)
     2. successfully-scored candidates are sorted by it
     3. failed candidates are kept in `results` but never ranked
     4. candidates missing the primary metric (even if status == "success")
@@ -209,7 +233,7 @@ def build_model_comparison(problem_type: ProblemType, results: list[EvaluationRe
     5. ranked_model_names[0] is the winner
     6. `results` always equals the full input list - nothing is dropped
     """
-    primary_metric, higher_is_better = select_primary_metric(problem_type, results)
+    primary_metric, higher_is_better = select_primary_metric(problem_type, results, preferred_metrics)
 
     scored = [r for r in results if r.status == "success" and r.metrics.get(primary_metric) is not None]
     ranked = sorted(scored, key=lambda r: r.metrics[primary_metric], reverse=higher_is_better)

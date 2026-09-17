@@ -18,7 +18,7 @@ export default function ModelBarChart({ models, bestModel }) {
               style={{ width: `${Math.max(2, (m.score_test / maxScore) * 100)}%` }}
             />
           </div>
-          <span className="bar-value">{m.score_test}</span>
+          <span className="bar-value">{typeof m.score_test === "number" ? m.score_test.toFixed(4) : m.score_test}</span>
         </div>
       ))}
     </div>

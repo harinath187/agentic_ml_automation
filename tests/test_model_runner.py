@@ -232,6 +232,40 @@ def test_run_candidates_aggregates_successful_models_only(classification_train_t
     assert set(metrics["models"].keys()) == {"baseline", "logistic_regression"}
     assert metrics["eval_metric"] == "accuracy"
     assert len(metrics["candidate_results"]) == 2
+    # Single source of truth: the top-level eval_metric must always mirror
+    # model_comparison.primary_metric - they must never independently disagree.
+    assert metrics["eval_metric"] == metrics["model_comparison"]["primary_metric"]
+
+
+def test_run_candidates_eval_metric_follows_plan_evaluation_metrics(classification_train_test):
+    train_df, test_df = classification_train_test
+    candidates, _ = resolve_candidates(ProblemType.CLASSIFICATION, ["baseline", "logistic_regression"])
+
+    metrics, _ = run_candidates(
+        candidates, train_df, test_df, "target", None, ProblemType.CLASSIFICATION,
+        evaluation_metrics=["precision", "accuracy"],
+    )
+
+    # "precision" is usable by every successful candidate here, so it must be
+    # honored ahead of the problem-type default (roc_auc/accuracy) - and both
+    # fields must still agree with each other.
+    assert metrics["eval_metric"] == "precision"
+    assert metrics["model_comparison"]["primary_metric"] == "precision"
+
+
+def test_run_candidates_populates_dataset_explainability_for_classification(classification_train_test):
+    train_df, test_df = classification_train_test
+    # baseline is excluded from feature/permutation importance by design, so
+    # use two candidates that both produce a usable importance ranking -
+    # exactly the >= 2 models explain_dataset_consensus requires.
+    candidates, _ = resolve_candidates(ProblemType.CLASSIFICATION, ["logistic_regression", "random_forest"])
+
+    metrics, _ = run_candidates(candidates, train_df, test_df, "target", None, ProblemType.CLASSIFICATION)
+
+    dataset_explainability = metrics["model_comparison"]["dataset_explainability"]
+    assert dataset_explainability is not None
+    assert dataset_explainability["num_models_aggregated"] == 2
+    assert dataset_explainability["consensus_ranking"]
 
 
 def test_run_candidates_keeps_failed_candidates_out_of_models_but_in_results(classification_train_test):

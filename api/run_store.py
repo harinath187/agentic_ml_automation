@@ -22,6 +22,8 @@ import traceback
 import uuid
 from typing import Optional
 
+import json
+
 from api import db, job_queue
 from orchestration.graph import PipelineCancelled, run_pipeline
 from tools.logging_config import get_logger
@@ -143,6 +145,8 @@ def _row_to_response(row: dict) -> dict:
             record["started_at"] = row["started_at"]
         if row["status"] == db.RUNNING and row.get("current_step"):
             record["current_step"] = row["current_step"]
+        if row["status"] == db.RUNNING and row.get("plan"):
+            record["plan"] = row["plan"]
         if row["status"] == db.QUEUED:
             record["queue_depth"] = job_queue.get_default_queue().depth()
     return record
@@ -155,6 +159,21 @@ def get_run(run_id: str) -> Optional[dict]:
 
 def list_runs(limit: int = 50, status: Optional[str] = None) -> list[dict]:
     return [_row_to_response(row) for row in db.list_runs(limit=limit, status=status)]
+
+
+def _on_progress(run_id: str, node_name: str, updates: dict) -> None:
+    """orchestration/graph.py's progress_callback: always records which node
+    just finished, and additionally persists the ExperimentPlan the moment
+    it's decided (node_validate_plan's `updates["plan"]`) - well before
+    training/evaluation finish - so a client polling GET /api/runs/{run_id}
+    mid-run can already show the user what the Planner decided, not just
+    which step it's on.
+    """
+    fields: dict = {"current_step": node_name}
+    plan = updates.get("plan")
+    if plan is not None:
+        fields["plan_json"] = json.dumps(plan.model_dump(mode="json"))
+    db.update_run(run_id, **fields)
 
 
 def _execute(
@@ -193,7 +212,7 @@ def _execute_inner(
             time_limit_s=time_limit_s,
             run_id=run_id,
             cancel_event=cancel_event,
-            progress_callback=lambda step: db.update_run(run_id, current_step=step),
+            progress_callback=lambda step, updates: _on_progress(run_id, step, updates),
         )
 
         if result.get("needs_clarification"):

@@ -55,14 +55,15 @@ def test_oversized_prompt_is_truncated_and_logged(monkeypatch, caplog):
 
     assert any("llm_prompt_exceeds_budget" in record.message for record in caplog.records)
     warning_record = next(r for r in caplog.records if "llm_prompt_exceeds_budget" in r.message)
+    schema_hint = llm_client._compact_schema_hint(_Echo)
     assert warning_record.caller == "tests.fake_caller"
-    assert warning_record.total_chars == len("system prompt") + len(oversized_user_prompt)
+    assert warning_record.total_chars == len("system prompt") + len(oversized_user_prompt) + len(schema_hint)
     assert warning_record.budget_chars == 1000
 
     sent_user_content = captured["messages"][1]["content"]
     assert len(sent_user_content) < len(oversized_user_prompt)
     assert "[...truncated - payload exceeded token budget...]" in sent_user_content
-    assert len(sent_user_content) + len("system prompt") <= 1000 + len(
+    assert len(sent_user_content) + len("system prompt") + len(schema_hint) <= 1000 + len(
         "\n\n[...truncated - payload exceeded token budget...]"
     )
 

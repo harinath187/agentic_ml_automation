@@ -56,6 +56,26 @@ def test_get_run_missing_returns_none():
     assert db.get_run("missing") is None
 
 
+def test_create_run_has_no_plan_until_one_is_recorded():
+    db.create_run("r1", None, "uploads/d1.csv", "desc", [], 2, 60)
+    assert db.get_run("r1")["plan"] is None
+
+
+def test_update_run_persists_plan_json_mid_run():
+    # Mirrors api/run_store.py's _on_progress: the plan can be recorded while
+    # status is still "running", well before the run completes - a client
+    # polling GET /api/runs/{run_id} should be able to see it immediately.
+    import json
+
+    db.create_run("r1", None, "uploads/d1.csv", "desc", [], 2, 60)
+    db.update_run("r1", status=db.RUNNING, started_at=db.now_iso())
+    db.update_run("r1", plan_json=json.dumps({"problem_type": "classification", "target_column": "churned"}))
+
+    row = db.get_run("r1")
+    assert row["status"] == db.RUNNING
+    assert row["plan"] == {"problem_type": "classification", "target_column": "churned"}
+
+
 def test_update_run_transitions_through_lifecycle():
     db.create_run("r1", None, "uploads/d1.csv", "desc", [], 2, 60)
 

@@ -202,6 +202,36 @@ def test_analyze_data_quality_flags_leakage_by_column_name():
     assert "target_leak" in report.possible_leakage_columns
 
 
+def test_analyze_data_quality_excludes_likely_target_from_name_based_leakage():
+    # "Outcome" trivially matches the naming-hint heuristic (it contains
+    # "outcome"), but flagging the target column itself as "possibly leaking
+    # into itself" is a meaningless finding that only deflates
+    # overall_quality_score - it must be excluded when the caller identifies
+    # it as the (deterministically unambiguous) likely target column.
+    df = pd.DataFrame({"Glucose": list(range(20)), "Outcome": [0, 1] * 10})
+    profile = profile_dataset(df)
+
+    without_hint = analyze_data_quality(df, profile)
+    assert "Outcome" in without_hint.possible_leakage_columns  # unchanged default behavior
+
+    with_hint = analyze_data_quality(df, profile, likely_target_column="Outcome")
+    assert "Outcome" not in with_hint.possible_leakage_columns
+    assert not any(i.column == "Outcome" and i.issue_type == "possible_leakage" for i in with_hint.issues)
+    # score must not be penalized for a finding that no longer fires
+    assert with_hint.overall_quality_score > without_hint.overall_quality_score
+
+
+def test_analyze_data_quality_still_flags_other_leakage_columns_alongside_likely_target():
+    # Excluding the target must not blanket-suppress the naming heuristic for
+    # every other column - only the identified target is exempt.
+    df = pd.DataFrame({"result_leak": list(range(20)), "Outcome": [0, 1] * 10})
+    profile = profile_dataset(df)
+
+    report = analyze_data_quality(df, profile, likely_target_column="Outcome")
+    assert "Outcome" not in report.possible_leakage_columns
+    assert "result_leak" in report.possible_leakage_columns
+
+
 def test_analyze_data_quality_flags_leakage_via_near_perfect_correlation():
     rng = np.random.default_rng(0)
     base = rng.normal(0, 1, 100)
@@ -211,6 +241,40 @@ def test_analyze_data_quality_flags_leakage_via_near_perfect_correlation():
     assert "a" in report.possible_leakage_columns
     assert "b" in report.possible_leakage_columns
     assert "c" not in report.possible_leakage_columns
+
+
+def test_analyze_data_quality_flags_sentinel_zero_as_possible_missing():
+    # Glucose-style column: real measurements cluster around 120±20, but a
+    # biologically-impossible "0" (a common missing-data placeholder in
+    # real-world datasets) shows up 8 times - a recurring value, not a
+    # one-off outlier, and far below the rest of the distribution.
+    rng = np.random.default_rng(5)
+    real_values = list(rng.normal(120, 20, 92))
+    sentinel_values = [0.0] * 8
+    df = pd.DataFrame({"glucose": real_values + sentinel_values})
+    profile = profile_dataset(df)
+    report = analyze_data_quality(df, profile)
+
+    assert "glucose" in report.possible_sentinel_missing
+    assert report.possible_sentinel_missing["glucose"]["value"] == 0.0
+    assert report.possible_sentinel_missing["glucose"]["count"] == 8
+    assert any(issue.issue_type == "possible_sentinel_missing" for issue in report.issues)
+
+    # Sentinel zeros are real (non-NaN) values, so they must NOT silently
+    # inflate/appear as true missingness - the two are different confidence
+    # levels and must stay in separate fields.
+    assert report.missing_value_columns.get("glucose", 0.0) == 0.0
+
+
+def test_analyze_data_quality_does_not_flag_a_plausible_minimum_as_sentinel():
+    # A normal, unremarkable minimum (no unusual recurrence, no implausible
+    # gap from the rest of the distribution) must not be flagged.
+    rng = np.random.default_rng(6)
+    df = pd.DataFrame({"amount": rng.normal(50, 5, 100)})
+    profile = profile_dataset(df)
+    report = analyze_data_quality(df, profile)
+
+    assert "amount" not in report.possible_sentinel_missing
 
 
 def test_analyze_data_quality_excludes_sensitive_columns(classification_df):

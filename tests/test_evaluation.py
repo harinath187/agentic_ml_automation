@@ -173,6 +173,56 @@ def test_select_primary_metric_regression_and_forecasting_use_rmse_lower_is_bett
         assert higher_is_better is False
 
 
+def test_select_primary_metric_honors_preferred_metrics_over_default():
+    # accuracy would normally lose to roc_auc under the default policy (both
+    # are universally reported here), but plan.evaluation_metrics explicitly
+    # prioritizes accuracy/f1 - that plan-stated priority must win.
+    results = [
+        EvaluationResult(model_name="a", problem_type="classification", status="success", metrics={"accuracy": 0.9, "roc_auc": 0.6}),
+        EvaluationResult(model_name="b", problem_type="classification", status="success", metrics={"accuracy": 0.8, "roc_auc": 0.95}),
+    ]
+    metric, higher_is_better = select_primary_metric(ProblemType.CLASSIFICATION, results, preferred_metrics=["f1", "accuracy", "roc_auc"])
+    assert metric == "accuracy"  # f1 is absent from every candidate, so it's skipped; accuracy is the next preferred metric present everywhere
+    assert higher_is_better is True
+
+
+def test_select_primary_metric_skips_preferred_metric_not_universally_available():
+    results = [
+        EvaluationResult(model_name="a", problem_type="classification", status="success", metrics={"accuracy": 0.9, "roc_auc": 0.6}),
+        EvaluationResult(model_name="b", problem_type="classification", status="success", metrics={"accuracy": 0.8}),  # no roc_auc
+    ]
+    metric, _ = select_primary_metric(ProblemType.CLASSIFICATION, results, preferred_metrics=["roc_auc", "accuracy"])
+    assert metric == "accuracy"  # roc_auc not usable by every candidate, falls through to the next preferred entry
+
+
+def test_select_primary_metric_falls_back_to_default_when_no_preferred_metric_usable():
+    results = [
+        EvaluationResult(model_name="a", problem_type="classification", status="success", metrics={"accuracy": 0.9, "roc_auc": 0.95}),
+        EvaluationResult(model_name="b", problem_type="classification", status="success", metrics={"accuracy": 0.8, "roc_auc": 0.85}),
+    ]
+    metric, _ = select_primary_metric(ProblemType.CLASSIFICATION, results, preferred_metrics=["precision_at_k"])
+    assert metric == "roc_auc"  # nothing in preferred_metrics usable -> falls back to the default policy
+
+
+def test_build_model_comparison_winner_changes_with_preferred_metrics():
+    # Two candidates that disagree on which metric ranks them first: "a" wins
+    # on accuracy, "b" wins on roc_auc. The winner must track whichever
+    # metric plan.evaluation_metrics actually prioritizes, not a hardcoded
+    # default - this is the regression test for the eval_metric vs
+    # model_comparison.primary_metric divergence bug.
+    results = [
+        EvaluationResult(model_name="a", problem_type="classification", status="success", metrics={"accuracy": 0.9, "roc_auc": 0.60}),
+        EvaluationResult(model_name="b", problem_type="classification", status="success", metrics={"accuracy": 0.7, "roc_auc": 0.95}),
+    ]
+    accuracy_first = build_model_comparison(ProblemType.CLASSIFICATION, results, preferred_metrics=["accuracy"])
+    assert accuracy_first.primary_metric == "accuracy"
+    assert accuracy_first.winner == "a"
+
+    roc_auc_first = build_model_comparison(ProblemType.CLASSIFICATION, results, preferred_metrics=["roc_auc"])
+    assert roc_auc_first.primary_metric == "roc_auc"
+    assert roc_auc_first.winner == "b"
+
+
 # --- ranking engine: build_model_comparison -----------------------------------
 
 

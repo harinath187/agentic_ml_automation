@@ -277,6 +277,16 @@ class DataQualityReport(BaseModel):
         description="Columns whose name or near-duplicate relationship with another column "
         "suggests target leakage - heuristic, not confirmed.",
     )
+    possible_sentinel_missing: Dict[str, dict] = Field(
+        default_factory=dict,
+        description="column -> {value, count, pct}: a recurring numeric value (typically 0, -1, "
+        "9999, etc.) sitting statistically implausibly far from the rest of the column's "
+        "distribution - a suspected missing-data placeholder rather than a genuine measurement. "
+        "Heuristic only, deliberately separate from missing_value_columns (which is true-NaN "
+        "only) since the two are different confidence levels - the Planner decides via "
+        "preprocessing_requirements/validation_notes whether to treat these as missing for this "
+        "dataset, never an automatic drop/impute here.",
+    )
     issues: List[DataQualityIssue] = Field(default_factory=list)
     overall_quality_score: float = Field(
         default=100.0, description="0-100 heuristic score; 100 = no issues detected."

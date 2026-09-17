@@ -62,9 +62,9 @@ def evaluate_results(
         )
 
     user_prompt = (
-        f"Pipeline plan (JSON):\n{plan.model_dump_json(indent=2)}\n\n"
+        f"Pipeline plan (JSON):\n{plan.model_dump_json()}\n\n"
         f"Deterministic model comparison summary (JSON) - the winner is ALREADY "
-        f"DECIDED, you cannot change it:\n{json.dumps(evaluation.to_llm_summary(comparison), indent=2)}\n\n"
+        f"DECIDED, you cannot change it:\n{json.dumps(evaluation.to_llm_summary(comparison), separators=(',', ':'))}\n\n"
         f"Retry count so far: {retry_count} / max {max_retries}"
     )
     decision = call_llm_json(SYSTEM_PROMPT, user_prompt, EvaluatorDecision, caller_name="agents.evaluator")

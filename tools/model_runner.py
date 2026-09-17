@@ -57,14 +57,21 @@ def run_candidates(
     validation_strategy: Optional[ValidationStrategyType] = None,
     validation_folds: Optional[int] = None,
     automl_time_limit: int = 60,
+    evaluation_metrics: Optional[list[str]] = None,
 ) -> tuple[dict, dict]:
     """Returns (metrics, chart_data) - see module docstring for why chart_data
-    is a separate return value rather than a key inside metrics."""
+    is a separate return value rather than a key inside metrics.
+
+    evaluation_metrics is the validated ExperimentPlan's evaluation_metrics
+    (LLM-stated priority order, e.g. ['roc_auc', 'f1']) - passed straight
+    through to tools/evaluation.py's select_primary_metric() so the metric
+    actually used to rank/pick a winner is plan-driven rather than an
+    independently hardcoded default.
+    """
     models: dict[str, dict] = {}
     model_results: list[ModelResult] = []
     autogluon_best_model: Optional[str] = None
     autogluon_model_path: Optional[str] = None
-    primary_eval_metric: Optional[str] = None
 
     for definition in candidates:
         if definition.model_family == "automl":
@@ -75,7 +82,6 @@ def run_candidates(
                 model_results.append(result)
                 if result.status == "success":
                     models[result.model_name] = _score_row(result)
-                    primary_eval_metric = primary_eval_metric or result.eval_metric
             if best_model:
                 autogluon_best_model = best_model
                 autogluon_model_path = model_path
@@ -88,13 +94,16 @@ def run_candidates(
         model_results.append(result)
         if result.status == "success":
             models[result.model_name] = _score_row(result)
-            primary_eval_metric = primary_eval_metric or result.eval_metric
 
     comparison = evaluation.build_model_comparison(
-        problem_type, [_to_evaluation_result(r, problem_type) for r in model_results]
+        problem_type, [_to_evaluation_result(r, problem_type) for r in model_results], evaluation_metrics
     )
 
-    dataset_explainability = None
+    # comparison.dataset_explainability (inside metrics["model_comparison"]
+    # below) is the ONE place this lives - do not also copy it into a
+    # top-level metrics["explainability"] key. That used to exist and was
+    # dead weight: nothing (agents/recommender.py, reports/template.html,
+    # or any test) ever read it, only model_comparison.dataset_explainability.
     if problem_type == ProblemType.FORECASTING and time_column:
         # Trend/seasonality/decomposition are properties of the historical
         # series, not of any one candidate model - one shared entry rather
@@ -103,13 +112,27 @@ def run_candidates(
         # agents/recommender.py's prompt the same way per-model
         # explainability does.
         try:
-            dataset_explainability = explainability.explain_forecast(train_df, target_column, time_column).model_dump()
-            comparison.dataset_explainability = dataset_explainability
+            comparison.dataset_explainability = explainability.explain_forecast(
+                train_df, target_column, time_column
+            ).model_dump()
+        except Exception:  # noqa: BLE001 - explainability is supplementary, never fails the run
+            pass
+    elif problem_type in (ProblemType.CLASSIFICATION, ProblemType.REGRESSION):
+        # Classification/regression's counterpart: a cross-model consensus
+        # feature-importance ranking (never null just because only one
+        # candidate trained - see explain_dataset_consensus's 2-model floor).
+        try:
+            comparison.dataset_explainability = explainability.explain_dataset_consensus(model_results)
         except Exception:  # noqa: BLE001 - explainability is supplementary, never fails the run
             pass
 
     metrics: dict = {
-        "eval_metric": primary_eval_metric,
+        # Single source of truth for "which metric did we rank on" - always
+        # comparison.primary_metric (tools/evaluation.py's
+        # select_primary_metric()), never computed independently here. Do
+        # not reintroduce a second, separately-derived eval_metric: that is
+        # exactly the two-disagreeing-fields bug this field once had.
+        "eval_metric": comparison.primary_metric,
         "models": models,
         "candidate_results": [r.to_dict() for r in model_results],
         "model_comparison": comparison.model_dump(),
@@ -118,8 +141,6 @@ def run_candidates(
         metrics["autogluon_best_model"] = autogluon_best_model
     if autogluon_model_path:
         metrics["model_path"] = autogluon_model_path
-    if dataset_explainability is not None:
-        metrics["explainability"] = {"_dataset": dataset_explainability}
 
     chart_data = {
         r.model_name: sample

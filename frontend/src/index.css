@@ -136,7 +136,7 @@ th {
 
 .bar-row {
   display: grid;
-  grid-template-columns: 160px 1fr 60px;
+  grid-template-columns: minmax(80px, 160px) 1fr 72px;
   align-items: center;
   gap: 8px;
 }
@@ -175,6 +175,158 @@ th {
 .bar-value {
   font-size: 0.8em;
   text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-progress-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  margin: 4px 0 12px;
+  padding: 0;
+}
+
+.run-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 110px;
+  position: relative;
+  padding-right: 12px;
+}
+
+.run-progress-step:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: #ddd;
+  margin: 0 4px;
+  align-self: center;
+}
+
+.run-progress-step--done:not(:last-child)::after {
+  background: #2e7d32;
+}
+
+.run-progress-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.75em;
+  font-weight: 600;
+  flex-shrink: 0;
+  background: #eee;
+  color: #888;
+}
+
+.run-progress-step--done .run-progress-marker {
+  background: #2e7d32;
+  color: #fff;
+}
+
+.run-progress-step--active .run-progress-marker {
+  background: #2a2a6a;
+  color: #fff;
+}
+
+.run-progress-step--active .run-progress-label {
+  color: #2a2a6a;
+  font-weight: 600;
+}
+
+.run-progress-label {
+  font-size: 0.8em;
+  color: #666;
+  white-space: nowrap;
+}
+
+.run-progress-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: run-progress-spin 0.7s linear infinite;
+}
+
+@keyframes run-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.run-progress-status {
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .run-progress-steps {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .run-progress-step:not(:last-child)::after {
+    display: none;
+  }
+}
+
+.plan-summary {
+  margin: 14px 0;
+  padding: 14px 16px;
+  background: #f7f8fb;
+  border: 1px solid #e0e0e6;
+  border-radius: 6px;
+}
+
+.plan-summary h3 {
+  margin: 0 0 8px;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+}
+
+.plan-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  row-gap: 6px;
+  column-gap: 12px;
+  margin: 0;
+}
+
+.plan-row {
+  display: contents;
+}
+
+.plan-row dt {
+  font-size: 0.85em;
+  color: #666;
+}
+
+.plan-row dd {
+  margin: 0;
+  font-size: 0.85em;
+  word-break: break-word;
+}
+
+.plan-reasoning {
+  margin: 10px 0 0;
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .plan-grid {
+    grid-template-columns: 1fr;
+  }
+  .plan-row dt {
+    font-weight: 600;
+    margin-top: 6px;
+  }
 }
 
 .report-actions {

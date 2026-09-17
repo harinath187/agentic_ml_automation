@@ -25,7 +25,12 @@ import pandas as pd
 from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.preprocessing import LabelEncoder
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from agents.schemas import ProblemType, ValidationStrategyType
 
@@ -195,6 +200,56 @@ def _make_regressor(estimator_cls, **fixed_params):
     return train_fn, predict_fn
 
 
+def _make_scaled_classifier(estimator_cls, **fixed_params):
+    """Like _make_classifier, but fits a StandardScaler on the training
+    features first - for scale-sensitive estimators (SVM, KNN, MLP) that
+    _make_classifier's raw _feature_frame() would otherwise disadvantage,
+    unlike tree/boosting models which don't need scaling."""
+
+    def train_fn(train_df, target_column, time_column, **params):
+        X = _feature_frame(train_df, target_column, time_column)
+        y = train_df[target_column]
+        encoder = LabelEncoder().fit(y)
+        scaler = StandardScaler().fit(X)
+        model = estimator_cls(**{**fixed_params, **params})
+        model.fit(scaler.transform(X), encoder.transform(y))
+        return {"model": model, "encoder": encoder, "scaler": scaler}
+
+    def predict_fn(fitted, test_df, target_column, time_column):
+        X = _feature_frame(test_df, target_column, time_column)
+        encoded_preds = fitted["model"].predict(fitted["scaler"].transform(X))
+        return fitted["encoder"].inverse_transform(np.asarray(encoded_preds).astype(int))
+
+    def predict_proba_fn(fitted, test_df, target_column, time_column):
+        model = fitted["model"]
+        if not hasattr(model, "predict_proba"):
+            return None
+        encoder = fitted["encoder"]
+        if len(encoder.classes_) != 2:
+            return None
+        X = _feature_frame(test_df, target_column, time_column)
+        proba = model.predict_proba(fitted["scaler"].transform(X))
+        return proba[:, 1]
+
+    return train_fn, predict_fn, predict_proba_fn
+
+
+def _make_scaled_regressor(estimator_cls, **fixed_params):
+    def train_fn(train_df, target_column, time_column, **params):
+        X = _feature_frame(train_df, target_column, time_column)
+        y = train_df[target_column].astype(float)
+        scaler = StandardScaler().fit(X)
+        model = estimator_cls(**{**fixed_params, **params})
+        model.fit(scaler.transform(X), y)
+        return {"model": model, "scaler": scaler}
+
+    def predict_fn(fitted, test_df, target_column, time_column):
+        X = _feature_frame(test_df, target_column, time_column)
+        return fitted["model"].predict(fitted["scaler"].transform(X))
+
+    return train_fn, predict_fn
+
+
 def _xgboost_classifier_train_predict():
     def train_fn(train_df, target_column, time_column, **params):
         from xgboost import XGBClassifier
@@ -343,6 +398,11 @@ def _classification_registry() -> list[ModelDefinition]:
     rf_train, rf_predict, rf_proba = _make_classifier(RandomForestClassifier, n_estimators=100, random_state=42)
     xgb_train, xgb_predict, xgb_proba = _xgboost_classifier_train_predict()
     lgbm_train, lgbm_predict, lgbm_proba = _lightgbm_classifier_train_predict()
+    dtree_train, dtree_predict, dtree_proba = _make_classifier(DecisionTreeClassifier, random_state=42)
+    svm_train, svm_predict, svm_proba = _make_scaled_classifier(SVC, probability=True, random_state=42)
+    knn_train, knn_predict, knn_proba = _make_scaled_classifier(KNeighborsClassifier)
+    nb_train, nb_predict, nb_proba = _make_classifier(GaussianNB)
+    mlp_train, mlp_predict, mlp_proba = _make_scaled_classifier(MLPClassifier, random_state=42, max_iter=500)
 
     return [
         ModelDefinition("baseline", (ProblemType.CLASSIFICATION,), "baseline", baseline_train, baseline_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=baseline_proba),
@@ -350,6 +410,11 @@ def _classification_registry() -> list[ModelDefinition]:
         ModelDefinition("random_forest", (ProblemType.CLASSIFICATION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=rf_proba),
         ModelDefinition("xgboost", (ProblemType.CLASSIFICATION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",), predict_proba_fn=xgb_proba),
         ModelDefinition("lightgbm", (ProblemType.CLASSIFICATION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",), predict_proba_fn=lgbm_proba),
+        ModelDefinition("decision_tree", (ProblemType.CLASSIFICATION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=dtree_proba),
+        ModelDefinition("svm", (ProblemType.CLASSIFICATION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=svm_proba),
+        ModelDefinition("knn", (ProblemType.CLASSIFICATION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=knn_proba),
+        ModelDefinition("naive_bayes", (ProblemType.CLASSIFICATION,), "naive_bayes", nb_train, nb_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=nb_proba),
+        ModelDefinition("neural_network", (ProblemType.CLASSIFICATION,), "neural_network", mlp_train, mlp_predict, _TABULAR_VALIDATION_STRATEGIES, predict_proba_fn=mlp_proba),
     ]
 
 
@@ -359,6 +424,10 @@ def _regression_registry() -> list[ModelDefinition]:
     rf_train, rf_predict = _make_regressor(RandomForestRegressor, n_estimators=100, random_state=42)
     xgb_train, xgb_predict = _xgboost_regressor_train_predict()
     lgbm_train, lgbm_predict = _lightgbm_regressor_train_predict()
+    dtree_train, dtree_predict = _make_regressor(DecisionTreeRegressor, random_state=42)
+    svm_train, svm_predict = _make_scaled_regressor(SVR)
+    knn_train, knn_predict = _make_scaled_regressor(KNeighborsRegressor)
+    mlp_train, mlp_predict = _make_scaled_regressor(MLPRegressor, random_state=42, max_iter=500)
 
     return [
         ModelDefinition("baseline", (ProblemType.REGRESSION,), "baseline", baseline_train, baseline_predict, _TABULAR_VALIDATION_STRATEGIES),
@@ -366,6 +435,10 @@ def _regression_registry() -> list[ModelDefinition]:
         ModelDefinition("random_forest", (ProblemType.REGRESSION,), "tree_ensemble", rf_train, rf_predict, _TABULAR_VALIDATION_STRATEGIES),
         ModelDefinition("xgboost", (ProblemType.REGRESSION,), "gradient_boosting", xgb_train, xgb_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("xgboost",)),
         ModelDefinition("lightgbm", (ProblemType.REGRESSION,), "gradient_boosting", lgbm_train, lgbm_predict, _TABULAR_VALIDATION_STRATEGIES, required_dependencies=("lightgbm",)),
+        ModelDefinition("decision_tree", (ProblemType.REGRESSION,), "tree", dtree_train, dtree_predict, _TABULAR_VALIDATION_STRATEGIES),
+        ModelDefinition("svm", (ProblemType.REGRESSION,), "svm", svm_train, svm_predict, _TABULAR_VALIDATION_STRATEGIES),
+        ModelDefinition("knn", (ProblemType.REGRESSION,), "instance_based", knn_train, knn_predict, _TABULAR_VALIDATION_STRATEGIES),
+        ModelDefinition("neural_network", (ProblemType.REGRESSION,), "neural_network", mlp_train, mlp_predict, _TABULAR_VALIDATION_STRATEGIES),
     ]
 
 

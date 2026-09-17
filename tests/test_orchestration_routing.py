@@ -140,6 +140,22 @@ def test_node_quality_analysis_populates_target_and_quality_reports():
     assert isinstance(result["data_quality_report"], DataQualityReport)
 
 
+def test_node_quality_analysis_excludes_unambiguous_target_from_name_based_leakage():
+    # "Outcome" is the only binary column here, so analyze_target() resolves
+    # it as the sole unambiguous recommended_target - node_quality_analysis
+    # must feed that into analyze_data_quality() so the naming-hint leakage
+    # check doesn't flag the target against itself (see tools/profiling.py's
+    # likely_target_column param).
+    df = pd.DataFrame({"Glucose": list(range(20)), "Outcome": [0, 1] * 10})
+    profile_result = node_profile_data({"df": df, "sensitive_columns": []})
+    state = {"df": df, "sensitive_columns": [], **profile_result}
+
+    result = node_quality_analysis(state)
+
+    assert result["target_analysis"].recommended_target == "Outcome"
+    assert "Outcome" not in result["data_quality_report"].possible_leakage_columns
+
+
 def _intelligence_state(df: pd.DataFrame) -> dict:
     profile = profile_dataset(df)
     target_analysis = analyze_target(df, profile)

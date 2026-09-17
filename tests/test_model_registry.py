@@ -11,8 +11,14 @@ from tools.model_registry import (
     resolve_candidates,
 )
 
-EXPECTED_CLASSIFICATION = {"baseline", "logistic_regression", "random_forest", "xgboost", "lightgbm"}
-EXPECTED_REGRESSION = {"baseline", "linear_regression", "random_forest", "xgboost", "lightgbm"}
+EXPECTED_CLASSIFICATION = {
+    "baseline", "logistic_regression", "random_forest", "xgboost", "lightgbm",
+    "decision_tree", "svm", "knn", "naive_bayes", "neural_network",
+}
+EXPECTED_REGRESSION = {
+    "baseline", "linear_regression", "random_forest", "xgboost", "lightgbm",
+    "decision_tree", "svm", "knn", "neural_network",
+}
 EXPECTED_FORECASTING = {"naive", "seasonal_naive", "ets", "arima", "sarima"}
 
 

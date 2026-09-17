@@ -29,7 +29,7 @@ MAX_IMPORTANCE_ENTRIES = 10
 SHAP_MAX_SAMPLES = 100
 PERMUTATION_REPEATS = 5
 PERMUTATION_RANDOM_STATE = 42
-_SHAP_SUPPORTED_FAMILIES = ("tree_ensemble", "gradient_boosting")
+_SHAP_SUPPORTED_FAMILIES = ("tree_ensemble", "gradient_boosting", "tree")
 # tools/model_registry.py never overrides importance_type in xgboost's/
 # lightgbm's default_params, so their sklearn-API default labels apply here:
 # XGBoost's native default is "gain", LightGBM's is "split" - neither is
@@ -233,6 +233,76 @@ def explain_tabular_model(
         )
 
     return result
+
+
+def _model_top_importances(explainability: Optional[dict]) -> list[dict]:
+    """Same preference order as tools/evaluation.py's to_llm_summary: SHAP >
+    permutation > native feature importance - whichever is populated first
+    for that model."""
+    if not explainability:
+        return []
+    for key in ("shap_importance", "permutation_importance", "feature_importance"):
+        entries = explainability.get(key)
+        if entries:
+            return entries
+    return []
+
+
+def explain_dataset_consensus(model_results: list) -> Optional[dict]:
+    """Classification/regression's counterpart to explain_forecast()'s
+    dataset-level entry: aggregates every successfully-explained candidate's
+    own feature ranking (already computed by explain_tabular_model per
+    model) into ONE consensus ranking - "Glucose is the top predictor across
+    N of M models" - rather than leaving ModelComparison.dataset_explainability
+    permanently null outside forecasting. Purely a deterministic re-summary
+    of numbers already computed elsewhere; no new model is trained.
+
+    model_results: ModelResult-shaped objects or dicts with .status/["status"]
+    and .explainability/["explainability"].
+
+    A simple average-rank vote: for each model's top importance list (1 =
+    most important), sum ranks per feature across models that included it,
+    average by how many models actually included it, then sort by (how many
+    models agreed the feature was worth ranking at all, average rank).
+    Returns None when fewer than 2 candidates produced a usable importance
+    list - a "consensus" of one model is just that model's own ranking, not
+    a genuine aggregate.
+    """
+    per_model_rankings: list[list[str]] = []
+    for result in model_results:
+        status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+        if status != "success":
+            continue
+        explainability = result.get("explainability") if isinstance(result, dict) else getattr(result, "explainability", None)
+        entries = _model_top_importances(explainability)
+        if not entries:
+            continue
+        per_model_rankings.append([e["feature"] for e in entries])
+
+    if len(per_model_rankings) < 2:
+        return None
+
+    rank_sums: dict[str, float] = {}
+    models_included: dict[str, int] = {}
+    for ranking in per_model_rankings:
+        for position, feature in enumerate(ranking):
+            rank_sums[feature] = rank_sums.get(feature, 0.0) + (position + 1)
+            models_included[feature] = models_included.get(feature, 0) + 1
+
+    consensus = [
+        {
+            "feature": feature,
+            "avg_rank": round(rank_sums[feature] / models_included[feature], 2),
+            "models_included": models_included[feature],
+        }
+        for feature in rank_sums
+    ]
+    consensus.sort(key=lambda c: (-c["models_included"], c["avg_rank"]))
+
+    return {
+        "num_models_aggregated": len(per_model_rankings),
+        "consensus_ranking": consensus[:MAX_IMPORTANCE_ENTRIES],
+    }
 
 
 def unsupported_automl_explainability(model_name: str, problem_type: ProblemType) -> ExplainabilityResult:

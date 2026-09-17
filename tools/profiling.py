@@ -272,17 +272,76 @@ def _detect_outliers(series: pd.Series) -> Optional[dict]:
 
 LEAKAGE_NAME_HINTS = ("target", "label", "outcome", "result", "leak", "actual", "y_true")
 
+# A candidate sentinel value's recurrence must clear this many rows and this
+# many standard deviations below/above the rest of the column's distribution
+# before it's flagged - keeps a merely unusual-but-real minimum/maximum (e.g.
+# a single legitimate zero) from being flagged as a placeholder.
+MIN_SENTINEL_OCCURRENCES = 2
+MIN_ROWS_FOR_SENTINEL_CHECK = 10
+SENTINEL_MAX_SHARE = 0.5
+SENTINEL_Z_SCORE_THRESHOLD = 3.0
+
+
+def _sentinel_candidate(non_null: pd.Series, rest: pd.Series, candidate_value: float, count: int) -> Optional[dict]:
+    pct = count / len(non_null)
+    if count < MIN_SENTINEL_OCCURRENCES or pct >= SENTINEL_MAX_SHARE or len(rest) < 5:
+        return None
+    rest_mean, rest_std = rest.mean(), rest.std()
+    if not rest_std or pd.isna(rest_std):
+        return None
+    z_score = abs(rest_mean - candidate_value) / rest_std
+    if z_score < SENTINEL_Z_SCORE_THRESHOLD:
+        return None
+    return {"value": float(candidate_value), "count": int(count), "pct": round(pct * 100, 2), "z_score": round(float(z_score), 2)}
+
+
+def _detect_sentinel_missing(series: pd.Series) -> Optional[dict]:
+    """Flags a numeric column's min or max value as a possible missing-data
+    placeholder (0, -1, 9999, ...) when it recurs (not a one-off outlier) and
+    sits implausibly far - by standard deviations, not a hardcoded value list
+    - from the rest of the column's distribution. A heuristic, not a
+    certainty: never used to auto-drop or auto-impute here, only surfaced for
+    the Planner to reason over (see DataQualityReport.possible_sentinel_missing).
+    """
+    non_null = series.dropna()
+    if len(non_null) < MIN_ROWS_FOR_SENTINEL_CHECK:
+        return None
+    counts = non_null.value_counts()
+
+    candidates = []
+    for boundary in (non_null.min(), non_null.max()):
+        count = int(counts.get(boundary, 0))
+        rest = non_null[non_null != boundary]
+        result = _sentinel_candidate(non_null, rest, boundary, count)
+        if result:
+            candidates.append(result)
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c["z_score"])
+
 
 def analyze_data_quality(
     df: pd.DataFrame,
     profile: DatasetProfile,
     sensitive_columns: Optional[list[str]] = None,
+    likely_target_column: Optional[str] = None,
 ) -> DataQualityReport:
     """Deterministic data-quality checks: missingness, duplicates, invalid
     dtypes, outliers, constant columns, suspicious/ID-like columns, and
-    heuristic leakage indicators. No target column is known yet at this
-    stage, so leakage detection is limited to naming hints and redundant
-    (near-duplicate) feature pairs.
+    heuristic leakage indicators. The Planner hasn't run yet at this stage,
+    so there is no plan.target_column to exclude - likely_target_column is
+    instead the deterministic analyze_target()'s recommended_target (set only
+    when there's exactly one unambiguous target candidate), passed in by the
+    caller (see orchestration/graph.py's node_quality_analysis, which calls
+    analyze_target() immediately before this). When set, it is excluded from
+    the naming-hint leakage check below: asking "does this column's name
+    suggest it encodes the outcome" of the outcome column itself is a
+    meaningless, always-true question that would otherwise unfairly penalize
+    overall_quality_score for perfectly normal target names (Outcome, label,
+    target, ...). Left None (multiple/no unambiguous candidate), the check
+    behaves exactly as before - no guessing beyond what analyze_target()
+    already determined confidently.
     """
     if profile.row_count == 0:
         return DataQualityReport(
@@ -335,6 +394,24 @@ def analyze_data_quality(
                 )
             )
 
+    possible_sentinel_missing: dict[str, dict] = {}
+    for col in profile.numerical_columns:
+        sentinel = _detect_sentinel_missing(df[col])
+        if sentinel:
+            possible_sentinel_missing[col] = sentinel
+            issues.append(
+                DataQualityIssue(
+                    column=col,
+                    issue_type="possible_sentinel_missing",
+                    severity="medium",
+                    detail=(
+                        f"{sentinel['count']} rows ({sentinel['pct']}%) hold {sentinel['value']!r}, "
+                        f"{sentinel['z_score']} std from the rest of the column's distribution - "
+                        "possibly a missing-data placeholder rather than a genuine value"
+                    ),
+                )
+            )
+
     invalid_dtype_columns: list[str] = []
     for col in profile.categorical_columns:
         series = df[col]
@@ -363,6 +440,8 @@ def analyze_data_quality(
 
     possible_leakage_columns: list[str] = []
     for col in visible_cols:
+        if col == likely_target_column:
+            continue  # the target itself can't "leak" its own value - see this function's docstring
         if any(hint in col.lower() for hint in LEAKAGE_NAME_HINTS):
             possible_leakage_columns.append(col)
             issues.append(
@@ -410,6 +489,7 @@ def analyze_data_quality(
         invalid_dtype_columns=invalid_dtype_columns,
         suspicious_columns=suspicious_columns,
         possible_leakage_columns=possible_leakage_columns,
+        possible_sentinel_missing=possible_sentinel_missing,
         issues=issues,
         overall_quality_score=overall_quality_score,
     )

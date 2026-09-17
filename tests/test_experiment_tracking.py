@@ -10,6 +10,7 @@ import random
 import numpy as np
 
 from agents.schemas import (
+    DataQualityReport,
     EvaluatorDecision,
     ExperimentPlan,
     ProblemType,
@@ -104,7 +105,11 @@ def test_build_record_complete_run_captures_plan_metrics_and_winner(tmp_path):
             },
         ],
     }
-    state = {"plan": plan, "decision": decision, "metrics": metrics, "retry_count": 0, "report_path": "reports/x.html"}
+    quality_report = DataQualityReport(constant_columns=[], possible_leakage_columns=[], overall_quality_score=100.0)
+    state = {
+        "plan": plan, "decision": decision, "metrics": metrics, "retry_count": 0, "report_path": "reports/x.html",
+        "data_quality_report": quality_report,
+    }
 
     record = et.build_record(**_base_kwargs(tmp_path, state))
 
@@ -118,6 +123,23 @@ def test_build_record_complete_run_captures_plan_metrics_and_winner(tmp_path):
     assert record.report_path == "reports/x.html"
     assert record.dataset_hash is not None
     assert record.runtime_seconds is not None and record.runtime_seconds >= 0
+    # quality_report must be present and non-null for every successful run,
+    # independent of whether analyze_data_quality found anything to flag -
+    # this is the "was it checked" audit trail alongside feature_selection's
+    # "what was dropped as a result".
+    assert record.quality_report is not None
+    assert record.quality_report["overall_quality_score"] == 100.0
+
+
+def test_build_record_quality_report_present_even_when_nothing_flagged(tmp_path):
+    quality_report = DataQualityReport()  # every list empty - the "checked and clean" case
+    state = {"data_quality_report": quality_report}
+
+    record = et.build_record(**_base_kwargs(tmp_path, state))
+
+    assert record.quality_report is not None
+    assert record.quality_report["suspicious_columns"] == []
+    assert record.quality_report["possible_sentinel_missing"] == {}
 
 
 def test_build_record_needs_clarification_run(tmp_path):

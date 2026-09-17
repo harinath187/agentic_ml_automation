@@ -108,17 +108,21 @@ def init_db() -> None:
                 report_path TEXT,
                 result_json TEXT,
                 cancel_requested INTEGER NOT NULL DEFAULT 0,
-                current_step TEXT
+                current_step TEXT,
+                plan_json TEXT
             )
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at)")
-        # Migration for DBs created before current_step existed - CREATE TABLE
-        # IF NOT EXISTS above is a no-op against an already-existing table.
+        # Migration for DBs created before current_step/plan_json existed -
+        # CREATE TABLE IF NOT EXISTS above is a no-op against an
+        # already-existing table.
         existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
         if "current_step" not in existing_columns:
             conn.execute("ALTER TABLE runs ADD COLUMN current_step TEXT")
+        if "plan_json" not in existing_columns:
+            conn.execute("ALTER TABLE runs ADD COLUMN plan_json TEXT")
 
 
 # --- datasets ------------------------------------------------------------
@@ -282,5 +286,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> dict:
     record["sensitive_columns"] = json.loads(record.pop("sensitive_columns_json") or "[]")
     result_json = record.pop("result_json", None)
     record["result"] = json.loads(result_json) if result_json else None
+    plan_json = record.pop("plan_json", None)
+    record["plan"] = json.loads(plan_json) if plan_json else None
     record["cancel_requested"] = bool(record["cancel_requested"])
     return record

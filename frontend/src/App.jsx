@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelRun, getRun, reportUrl, startRun, uploadDataset } from "./api";
 import ModelBarChart from "./components/ModelBarChart";
+import PlanSummary from "./components/PlanSummary";
+import RunProgress from "./components/RunProgress";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -207,21 +209,23 @@ export default function App() {
 
       {runRecord?.status === "queued" && (
         <section className="card">
-          <p className="muted">
-            Run queued - waiting for a free worker...
-            {typeof runRecord.queue_depth === "number" && ` (${runRecord.queue_depth} run(s) queued/in progress)`}
-          </p>
+          <RunProgress status="queued" currentStep={null} />
+          {typeof runRecord.queue_depth === "number" && (
+            <p className="muted">{runRecord.queue_depth} run(s) queued/in progress.</p>
+          )}
           <button onClick={handleCancelRun}>Cancel</button>
         </section>
       )}
 
       {runRecord?.status === "running" && (
         <section className="card">
-          <p className="muted">
-            Pipeline running - planning, cleaning, training, and evaluating models...
-            {runRecord.current_step && ` Current step: ${runRecord.current_step}.`}
-            {runRecord.started_at && ` Started at ${runRecord.started_at}.`}
-          </p>
+          <RunProgress status="running" currentStep={runRecord.current_step} />
+          {runRecord.started_at && <p className="muted">Started at {runRecord.started_at}.</p>}
+          {runRecord.plan ? (
+            <PlanSummary plan={runRecord.plan} />
+          ) : (
+            <p className="muted">Waiting for the Planner to decide an approach...</p>
+          )}
           <button onClick={handleCancelRun}>Cancel</button>
         </section>
       )}
@@ -261,15 +265,7 @@ export default function App() {
         <section className="card">
           <h2>3. Results</h2>
 
-          {runRecord.plan?.scope_strategy && (
-            <p className="muted">
-              Entity scope: <strong>{runRecord.plan.scope_strategy}</strong>
-              {runRecord.plan.entity_column && ` (entity column: ${runRecord.plan.entity_column}`}
-              {runRecord.plan.entity_filter_value && `, value: ${runRecord.plan.entity_filter_value}`}
-              {runRecord.plan.entity_column && ")"}
-              {runRecord.plan.entity_selection_reasoning && ` — ${runRecord.plan.entity_selection_reasoning}`}
-            </p>
-          )}
+          <PlanSummary plan={runRecord.plan} />
 
           <p className="muted">
             Evaluation metric: {runRecord.metrics.eval_metric}

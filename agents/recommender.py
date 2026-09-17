@@ -106,19 +106,19 @@ def generate_recommendation(
         )
 
     prompt_parts = [
-        f"Dataset profile (JSON):\n{dataset_profile.model_dump_json(indent=2)}"
+        f"Dataset profile (JSON):\n{dataset_profile.model_dump_json()}"
         if dataset_profile is not None
         else "Dataset profile: not available.",
-        f"Problem definition (JSON):\n{problem_definition.model_dump_json(indent=2)}"
+        f"Problem definition (JSON):\n{problem_definition.model_dump_json()}"
         if problem_definition is not None
         else "Problem definition: not available.",
-        f"Experiment plan (JSON):\n{plan.model_dump_json(indent=2)}",
+        f"Experiment plan (JSON):\n{plan.model_dump_json()}",
         f"Deterministic model comparison summary (JSON) - the winner is ALREADY "
-        f"DECIDED, you cannot change it:\n{json.dumps(to_llm_summary(model_comparison), indent=2)}",
-        f"Evaluator decision (JSON):\n{decision.model_dump_json(indent=2)}",
+        f"DECIDED, you cannot change it:\n{json.dumps(to_llm_summary(model_comparison), separators=(',', ':'))}",
+        f"Evaluator decision (JSON):\n{decision.model_dump_json()}",
     ]
     if validation_strategy is not None:
-        prompt_parts.append(f"Validation strategy (JSON):\n{validation_strategy.model_dump_json(indent=2)}")
+        prompt_parts.append(f"Validation strategy (JSON):\n{validation_strategy.model_dump_json()}")
 
     user_prompt = "\n\n".join(prompt_parts)
     output = call_llm_json(SYSTEM_PROMPT, user_prompt, RecommendationOutput, caller_name="agents.recommender")

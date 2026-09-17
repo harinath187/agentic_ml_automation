@@ -179,7 +179,10 @@ def node_quality_analysis(state: PipelineState) -> PipelineState:
     dataset_profile = state["dataset_profile"]
     sensitive_columns = state.get("sensitive_columns")
     target_analysis = profiling.analyze_target(state["df"], dataset_profile, sensitive_columns)
-    data_quality_report = profiling.analyze_data_quality(state["df"], dataset_profile, sensitive_columns)
+    data_quality_report = profiling.analyze_data_quality(
+        state["df"], dataset_profile, sensitive_columns,
+        likely_target_column=target_analysis.recommended_target,
+    )
     return {"target_analysis": target_analysis, "data_quality_report": data_quality_report}
 
 
@@ -351,6 +354,7 @@ def node_train(state: PipelineState) -> PipelineState:
         validation_strategy=plan.validation_strategy.strategy_type if plan.validation_strategy else None,
         validation_folds=plan.validation_strategy.folds if plan.validation_strategy else None,
         automl_time_limit=state.get("time_limit_s", 60),
+        evaluation_metrics=plan.evaluation_metrics,
     )
     return {"metrics": metrics, "chart_data": chart_data}
 
@@ -655,7 +659,7 @@ def run_pipeline(
     time_limit_s: int = 60,
     run_id: Optional[str] = None,
     cancel_event: Optional[threading.Event] = None,
-    progress_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[str, dict], None]] = None,
 ) -> PipelineState:
     """Runs the graph, then records an ExperimentRecord (Phase 8) for the run
     - reproducibility/audit trail, entirely separate from the pipeline's own
@@ -676,14 +680,19 @@ def run_pipeline(
     cooperatively cancel a running job - checked at the start of every node
     (see _cancellable()/PipelineCancelled above). Unset for CLI usage.
 
-    progress_callback: an optional `fn(node_name)` invoked as each node
-    finishes (e.g. "clean", "train", "evaluate") - lets a caller (see
+    progress_callback: an optional `fn(node_name, updates)` invoked as each
+    node finishes (e.g. "clean", "train", "evaluate") - lets a caller (see
     api/run_store.py) persist which step a long-running job is currently on,
     so a client polling GET /api/runs/{run_id} mid-run sees more than a bare
-    "running" status. Uses app.stream(..., stream_mode="updates") instead of
-    app.invoke() to get a callback point between nodes; the accumulated
-    per-node updates are merged into the same PipelineState shape invoke()
-    would have returned, so callers otherwise see no difference.
+    "running" status. `updates` is exactly the PipelineState dict that node
+    returned (e.g. node_validate_plan's `{"plan": ..., "needs_clarification":
+    ...}`) - not the full accumulated state - so a caller can react to a
+    specific field becoming available (e.g. persisting the ExperimentPlan as
+    soon as it's decided, well before training finishes) without re-deriving
+    it from the whole state. Uses app.stream(..., stream_mode="updates")
+    instead of app.invoke() to get a callback point between nodes; the
+    accumulated per-node updates are merged into the same PipelineState shape
+    invoke() would have returned, so callers otherwise see no difference.
     """
     experiment_tracking.set_global_seeds()
 
@@ -712,7 +721,7 @@ def run_pipeline(
             for node_name, updates in step.items():
                 result.update(updates)
                 if progress_callback is not None:
-                    progress_callback(node_name)
+                    progress_callback(node_name, updates)
     except PipelineCancelled as exc:
         exception = exc
         status_override = "cancelled"

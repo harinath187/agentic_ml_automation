@@ -42,9 +42,42 @@ RATE_LIMIT_MAX_DELAY_S = 30.0
 DEFAULT_MAX_PROMPT_CHARS = 24000
 _TRUNCATION_MARKER = "\n\n[...truncated - payload exceeded token budget...]"
 
+# Upper bound on completion tokens for every structured-output call. Groq's
+# TPM rate limit counts prompt + completion tokens together, so leaving this
+# unset lets the model's default completion allowance silently eat into the
+# same budget DEFAULT_MAX_PROMPT_CHARS is trying to protect. Every schema in
+# agents/schemas.py used with call_llm_json is a handful of short fields, so
+# this is generous headroom, not a tight fit.
+DEFAULT_MAX_COMPLETION_TOKENS = 2048
+
 
 class LLMCallError(RuntimeError):
     pass
+
+
+def _compact_schema_hint(schema: Type[BaseModel]) -> str:
+    """Builds the 'respond with this schema' hint from schema.model_json_schema(),
+    stripping `description`/`title` keys first.
+
+    Pydantic's Field(description=...) text is there for humans reading
+    agents/schemas.py, not for the model - repeating every field's prose
+    description a second time inside the JSON schema roughly doubles its
+    size for no benefit, and was part of what pushed planner.py's prompt
+    over Groq's TPM cap (see the 413 this guards against).
+    """
+
+    def _strip(node):
+        if isinstance(node, dict):
+            return {k: _strip(v) for k, v in node.items() if k not in ("description", "title")}
+        if isinstance(node, list):
+            return [_strip(v) for v in node]
+        return node
+
+    compact = _strip(schema.model_json_schema())
+    return (
+        "Respond with ONLY a single valid JSON object matching this schema "
+        f"(no prose, no markdown fences):\n{json.dumps(compact, separators=(',', ':'))}"
+    )
 
 
 def _get_client():
@@ -116,6 +149,7 @@ def call_llm_json(
     max_retries: int = 3,
     model: str = DEFAULT_MODEL,
     max_prompt_chars: int = DEFAULT_MAX_PROMPT_CHARS,
+    max_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
     caller_name: Optional[str] = None,
 ) -> T:
     """Call the LLM and parse+validate its response against `schema`.
@@ -126,14 +160,19 @@ def call_llm_json(
     this validation-retry budget.
 
     `max_prompt_chars` is a last-resort safety net (see DEFAULT_MAX_PROMPT_CHARS
-    above): if `system_prompt` + `user_prompt` exceeds it, this logs a
-    warning naming `caller_name` (inferred from the call stack when omitted)
-    and truncates `user_prompt` to fit before ever calling Groq. Callers
-    should trim their own payload (tools.evaluation.to_llm_summary() or
-    equivalent) well before this triggers - it's a safety net, not the fix.
+    above): if `system_prompt` + `user_prompt` + the schema hint exceeds it,
+    this logs a warning naming `caller_name` (inferred from the call stack
+    when omitted) and truncates `user_prompt` to fit before ever calling
+    Groq. Callers should trim their own payload (tools.evaluation.to_llm_summary()
+    or equivalent) well before this triggers - it's a safety net, not the fix.
+
+    `max_tokens` bounds the completion Groq is asked to generate - Groq's TPM
+    rate limit counts prompt + completion tokens together, so an unbounded
+    completion allowance can push an otherwise-fine prompt over the limit.
     """
     caller_name = caller_name or _infer_caller_name()
-    total_chars = len(system_prompt) + len(user_prompt)
+    schema_hint = _compact_schema_hint(schema)
+    total_chars = len(system_prompt) + len(user_prompt) + len(schema_hint)
     if total_chars > max_prompt_chars:
         logger.warning(
             "llm_prompt_exceeds_budget",
@@ -143,14 +182,12 @@ def call_llm_json(
                 "budget_chars": max_prompt_chars,
             },
         )
-        keep_chars = max(0, max_prompt_chars - len(system_prompt) - len(_TRUNCATION_MARKER))
+        keep_chars = max(
+            0, max_prompt_chars - len(system_prompt) - len(schema_hint) - len(_TRUNCATION_MARKER)
+        )
         user_prompt = user_prompt[:keep_chars] + _TRUNCATION_MARKER
 
     client = _get_client()
-    schema_hint = (
-        "Respond with ONLY a single valid JSON object matching this schema "
-        f"(no prose, no markdown fences):\n{json.dumps(schema.model_json_schema())}"
-    )
     messages = [
         {"role": "system", "content": f"{system_prompt}\n\n{schema_hint}"},
         {"role": "user", "content": user_prompt},
@@ -164,6 +201,7 @@ def call_llm_json(
             messages=messages,
             response_format={"type": "json_object"},
             temperature=0.1,
+            max_tokens=max_tokens,
         )
         raw = response.choices[0].message.content
         try:
