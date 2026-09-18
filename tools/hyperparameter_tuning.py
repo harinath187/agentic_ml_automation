@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,10 @@ from sklearn.model_selection import KFold, ParameterGrid, StratifiedKFold
 
 from agents.schemas import ProblemType, ValidationStrategyType
 from tools.model_registry import ModelDefinition
+
+
+class TuningCancelled(RuntimeError):
+    """Raised when a cooperative pipeline cancellation is observed."""
 
 
 def _score(problem_type: ProblemType, y_true, predictions, metric: str) -> float:
@@ -39,6 +43,7 @@ def tune_model(
     max_trials: int = 24,
     random_state: int = 42,
     metric: Optional[str] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> dict:
     """Search a model's declared parameter grid using train_df only.
 
@@ -68,8 +73,12 @@ def tune_model(
     try:
         split_indices = list(split_iter)
         for params in candidates:
+            if cancel_check is not None and cancel_check():
+                raise TuningCancelled("Model tuning was cancelled.")
             fold_scores = []
             for train_indices, validation_indices in split_indices:
+                if cancel_check is not None and cancel_check():
+                    raise TuningCancelled("Model tuning was cancelled.")
                 fitted = definition.train_fn(
                     train_df.iloc[train_indices], target_column, time_column, **params
                 )
@@ -84,6 +93,8 @@ def tune_model(
             if score > best_score:
                 best_score = score
                 best_params = params
+    except TuningCancelled:
+        raise
     except Exception as exc:  # noqa: BLE001 - tuning is supplementary per candidate
         return {
             "model_name": definition.name,
@@ -114,14 +125,18 @@ def tune_models(
     folds: int = 3,
     max_trials: int = 24,
     metric: Optional[str] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> tuple[dict[str, dict], dict[str, dict]]:
     results: dict[str, dict] = {}
     params: dict[str, dict] = {}
     for definition in definitions:
+        if cancel_check is not None and cancel_check():
+            raise TuningCancelled("Model tuning was cancelled.")
         result = tune_model(
             definition, train_df, target_column, time_column, problem_type,
             validation_strategy=validation_strategy or ValidationStrategyType.K_FOLD,
             folds=folds, max_trials=max_trials, metric=metric,
+            cancel_check=cancel_check,
         )
         results[definition.name] = result
         if result.get("status") == "success":

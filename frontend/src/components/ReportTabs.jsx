@@ -27,6 +27,16 @@ function Unavailable({ label }) {
   return <p className="muted">{label} is not available for this run.</p>;
 }
 
+function ReportChart({ uri, name, caption }) {
+  if (!uri) return null;
+  return (
+    <figure className="report-chart">
+      <img src={uri} alt={name} />
+      <figcaption className="muted">{caption || name.replace(/_/g, " ")}</figcaption>
+    </figure>
+  );
+}
+
 function MissingValuesChart({ values }) {
   const entries = Object.entries(values || {}).sort(([, a], [, b]) => b - a);
   if (!entries.length) return null;
@@ -357,7 +367,9 @@ function ClassDistributionChart({ distribution }) {
 
 function PreprocessingTab({ runRecord }) {
   const { cleaning_log, feature_log, feature_selection_log, split_log } = runRecord;
-  if (!cleaning_log && !feature_log && !feature_selection_log && !split_log) {
+  const charts = runRecord.report_charts || {};
+  const hasExplainabilityCharts = charts.feature_importance || charts.permutation_importance || charts.shap_importance;
+  if (!cleaning_log && !feature_log && !feature_selection_log && !split_log && !hasExplainabilityCharts) {
     return <Unavailable label="Preprocessing logs" />;
   }
   return (
@@ -365,6 +377,16 @@ function PreprocessingTab({ runRecord }) {
       <LogSection title="Feature selection" log={feature_selection_log} />
       <LogSection title="Cleaning" log={cleaning_log} />
       <LogSection title="Feature engineering" log={feature_log} />
+      {hasExplainabilityCharts && (
+        <section>
+          <h3>Feature importance</h3>
+          <div className="charts-grid">
+            <ReportChart uri={charts.feature_importance} name="feature importance" caption="Native feature importance for the recommended model." />
+            <ReportChart uri={charts.permutation_importance} name="permutation importance" caption="Permutation importance for the recommended model." />
+            <ReportChart uri={charts.shap_importance} name="SHAP importance" caption="SHAP importance for the recommended model." />
+          </div>
+        </section>
+      )}
       <LogSection title="Train/test split" log={split_log} />
       {split_log?.class_distribution && (
         <section className="class-distribution-section">
@@ -489,6 +511,7 @@ function FlatModelMetricsTable({ models, bestModel }) {
 function ModelsTab({ runRecord }) {
   const { metrics, decision } = runRecord;
   if (!metrics) return <Unavailable label="Model metrics" />;
+  const modelComparisonChart = runRecord.report_charts?.model_comparison;
   const comparisonResults = metrics.model_comparison?.results;
   return (
     <div>
@@ -496,7 +519,15 @@ function ModelsTab({ runRecord }) {
         Evaluation metric: {metrics.eval_metric}
         {metrics.per_entity && ` — averaged across ${metrics.entities_trained} entities`}
       </p>
-      <ModelBarChart models={metrics.models} bestModel={decision?.best_model} />
+      {modelComparisonChart ? (
+        <ReportChart
+          uri={modelComparisonChart}
+          name="model comparison"
+          caption="Model comparison on the primary evaluation metric."
+        />
+      ) : (
+        <ModelBarChart models={metrics.models} bestModel={decision?.best_model} />
+      )}
 
       {comparisonResults?.length > 0 ? (
         <ModelMetricsTable results={comparisonResults} bestModel={decision?.best_model} />
@@ -603,7 +634,9 @@ function BusinessInterpretationTab({ runRecord }) {
 
 function ChartsTab({ runRecord }) {
   const charts = runRecord.report_charts;
-  const entries = Object.entries(charts || {}).filter(([, uri]) => uri);
+  const entries = Object.entries(charts || {}).filter(
+    ([name, uri]) => uri && !["model_comparison", "feature_importance", "permutation_importance", "shap_importance"].includes(name),
+  );
   if (!entries.length) return <Unavailable label="Charts" />;
   return (
     <div className="charts-grid">

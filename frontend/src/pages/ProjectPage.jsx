@@ -132,9 +132,21 @@ export default function ProjectPage() {
     return null;
   }
 
-  const datasets = datasetsForProject(state, proj.id).slice().sort((a, b) => b.createdAt - a.createdAt);
+  const allDatasets = datasetsForProject(state, proj.id).slice().sort((a, b) => b.createdAt - a.createdAt);
   const runs = runsForProject(state, proj.id);
+  const completedDatasetIds = new Set(
+    runs.filter((run) => run.status === "completed").map((run) => run.datasetId),
+  );
+  const datasets = allDatasets.filter((dataset) => !completedDatasetIds.has(dataset.id));
+  const hasCompletedRun = runs.some((run) => run.status === "completed");
   const hasDescription = !!description.trim().length;
+
+  useEffect(() => {
+    if (hasCompletedRun && description) {
+      setDescription("");
+      actions.setProjectDescription(proj.id, "");
+    }
+  }, [hasCompletedRun, proj.id]);
 
   const crumbs = [
     { label: "Workspaces", action: actions.goWorkspaces },
@@ -250,22 +262,22 @@ export default function ProjectPage() {
       </div>
 
       <div className="section">
-        <div className="section-head">
-          <h2>Business problem</h2>
-          {/* <span className="hint">What decision or outcome should this model support?</span> */}
-        </div>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <textarea
-            rows={3}
-            placeholder="e.g. Predict which customers will churn next month so retention offers can be targeted."
-            value={description}
-            onChange={(e) => onDescriptionChange(e.target.value)}
-          />
-        </div>
-        <p className="muted" style={{ marginTop: 8 }}>
-          We are using an LLM in this ML pipeline, but the raw data will not be exposed to the LLM - only column
-          names, dtypes, stats, and metrics are.
-        </p>
+          <div className="section-head">
+            <h2>Business problem</h2>
+            {/* <span className="hint">What decision or outcome should this model support?</span> */}
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <textarea
+              rows={3}
+              placeholder="e.g. Predict which customers will churn next month so retention offers can be targeted."
+              value={description}
+              onChange={(e) => onDescriptionChange(e.target.value)}
+            />
+          </div>
+          <p className="muted" style={{ marginTop: 8 }}>
+            We are using an LLM in this ML pipeline, but the raw data will not be exposed to the LLM - only column
+            names, dtypes, stats, and metrics are.
+          </p>
       </div>
 
       <div className="section">
@@ -321,11 +333,11 @@ export default function ProjectPage() {
         {uploadError && <p className="error">{uploadError}</p>}
       </div>
 
-      <div className="section">
-        <div className="section-head">
-          <h2>Datasets</h2>
-        </div>
-        {datasets.length ? (
+      {datasets.length > 0 && (
+        <div className="section">
+          <div className="section-head">
+            {/* <h2>Datasets</h2> */}
+          </div>
           <div className="list">
             {datasets.map((d) => {
               const busy = isDatasetBusy(d.id);
@@ -354,10 +366,8 @@ export default function ProjectPage() {
               );
             })}
           </div>
-        ) : (
-          <div className="empty">No dataset uploaded yet for this project.</div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="section">
         <div className="section-head">
@@ -372,12 +382,12 @@ export default function ProjectPage() {
                   <button className="list-row" onClick={() => selectRun(r.id)} aria-expanded={expanded}>
                     <div className="list-icon">{expanded ? "▼" : "▶"}</div>
                     <div className="list-main">
-                      <div className="list-title">{datasets.find((dataset) => dataset.id === r.datasetId)?.name || "Dataset"}</div>
+                      <div className="list-title">{allDatasets.find((dataset) => dataset.id === r.datasetId)?.name || "Dataset"}</div>
                       <div className="list-sub">{fmtDateTime(r.createdAt)}</div>
                     </div>
                     <div className="list-side"><RunStatusPill status={r.status} /></div>
                   </button>
-                  {expanded && runRecord && <RunDetails runRecord={runRecord} datasets={datasets} runError={runError} onCancel={handleCancelRun} onSubmitClarification={handleSubmitClarification} clarificationAnswer={clarificationAnswer} setClarificationAnswer={setClarificationAnswer} />}
+                  {expanded && runRecord && <RunDetails runRecord={runRecord} datasets={allDatasets} runError={runError} onCancel={handleCancelRun} onSubmitClarification={handleSubmitClarification} clarificationAnswer={clarificationAnswer} setClarificationAnswer={setClarificationAnswer} />}
                 </div>
               );
             })}

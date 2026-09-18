@@ -1,8 +1,9 @@
 import pandas as pd
+import pytest
 
 from agents.schemas import ProblemType, ValidationStrategyType
 from orchestration.graph import build_graph
-from tools.hyperparameter_tuning import tune_model
+from tools.hyperparameter_tuning import TuningCancelled, tune_model
 from tools.model_registry import resolve_candidates
 
 
@@ -42,6 +43,30 @@ def test_baseline_without_tuning_space_is_skipped():
     )
 
     assert result["status"] == "skipped"
+
+
+def test_tuning_stops_when_cancelled_between_trials():
+    train_df = pd.DataFrame(
+        {
+            "feature": [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+            "target": [0, 1] * 6,
+        }
+    )
+    (definition,), _ = resolve_candidates(ProblemType.CLASSIFICATION, ["logistic_regression"])
+    cancelled = True
+
+    with pytest.raises(TuningCancelled):
+        tune_model(
+            definition,
+            train_df,
+            target_column="target",
+            time_column=None,
+            problem_type=ProblemType.CLASSIFICATION,
+            validation_strategy=ValidationStrategyType.STRATIFIED_K_FOLD,
+            folds=2,
+            max_trials=2,
+            cancel_check=lambda: cancelled,
+        )
 
 
 def test_graph_places_tuning_after_vectorization():

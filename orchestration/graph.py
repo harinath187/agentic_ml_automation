@@ -109,13 +109,12 @@ class PipelineCancelled(RuntimeError):
     run_pipeline() and recorded as an ExperimentRecord with status
     "cancelled" rather than "error".
 
-    Cancellation is checked only at node boundaries (see _cancellable()
-    below), not inside a node - a run already partway through, say, an
-    AutoGluon .fit() call finishes that call before the cancellation takes
-    effect at the next node. There is no way to preempt a single blocking
+    Cancellation is checked at node boundaries (see _cancellable() below),
+    and at cooperative checkpoints inside the classical tuning loop. A run
+    already partway through a blocking model fit finishes that fit before
+    cancellation takes effect. There is no way to preempt a single blocking
     call mid-flight without a subprocess-based worker, which Phase 9
-    deliberately avoids (see orchestration/graph.py's module docstring on
-    scope).
+    deliberately avoids (see this module's scope notes).
     """
 
 
@@ -413,17 +412,23 @@ def node_tune_models(state: PipelineState) -> PipelineState:
             "tuning_results": {"status": "skipped", "reason": "unsupported problem type"},
         }
 
-    tuned_params, results = hyperparameter_tuning.tune_models(
-        candidates,
-        state["train_df"],
-        target_column=plan.target_column,
-        time_column=plan.time_column,
-        problem_type=problem_type,
-        validation_strategy=(
-            plan.validation_strategy.strategy_type if plan.validation_strategy else None
-        ),
-        metric=plan.evaluation_metrics[0] if plan.evaluation_metrics else None,
-    )
+    try:
+        tuned_params, results = hyperparameter_tuning.tune_models(
+            candidates,
+            state["train_df"],
+            target_column=plan.target_column,
+            time_column=plan.time_column,
+            problem_type=problem_type,
+            validation_strategy=(
+                plan.validation_strategy.strategy_type if plan.validation_strategy else None
+            ),
+            metric=plan.evaluation_metrics[0] if plan.evaluation_metrics else None,
+            cancel_check=lambda: bool(
+                state.get("cancel_event") and state["cancel_event"].is_set()
+            ),
+        )
+    except hyperparameter_tuning.TuningCancelled as exc:
+        raise PipelineCancelled(str(exc)) from exc
     return {"tuned_model_params": tuned_params, "tuning_results": results}
 
 
