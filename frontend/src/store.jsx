@@ -82,8 +82,9 @@ function mergeById(existing, incoming) {
 
 function initialState() {
   return {
-    view: "workspaces", // "workspaces" | "workspace" | "project"
-    tab: "projects", // dashboard | projects | datasets
+    view: "workspace", // "workspaces" | "workspace" | "project"
+    tab: "projects", // projects | datasets
+    activeReportTab: "overview",
     currentWorkspaceId: null,
     currentProjectId: null,
     workspaces: [],
@@ -129,8 +130,29 @@ export function StoreProvider({ children }) {
   useEffect(() => {
     withLoading(async () => {
       const { workspaces } = await listWorkspaces();
+      const normalizedWorkspaces = workspaces.map(normalizeWorkspace);
       patch((s) => {
-        s.workspaces = workspaces.map(normalizeWorkspace);
+        s.workspaces = normalizedWorkspaces;
+        if (normalizedWorkspaces.length) {
+          s.view = "workspace";
+          s.currentWorkspaceId = normalizedWorkspaces[0].id;
+          s.tab = "projects";
+        } else {
+          s.view = "workspaces";
+        }
+      });
+      if (!normalizedWorkspaces.length) return;
+
+      const workspaceId = normalizedWorkspaces[0].id;
+      const [{ projects }, { datasets }, { runs }] = await Promise.all([
+        listProjects(workspaceId),
+        listWorkspaceDatasets(workspaceId),
+        listWorkspaceRuns(workspaceId),
+      ]);
+      patch((s) => {
+        s.projects = mergeById(s.projects, projects.map(normalizeProject));
+        s.datasets = mergeById(s.datasets, datasets.map(normalizeDataset));
+        s.runs = mergeById(s.runs, runs.map(normalizeRun));
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,6 +197,7 @@ export function StoreProvider({ children }) {
       patch((s) => {
         s.view = "project";
         s.currentProjectId = projId;
+        s.activeReportTab = "overview";
       });
       withLoading(async () => {
         const [{ datasets }, { runs }] = await Promise.all([listProjectDatasets(projId), listProjectRuns(projId)]);
@@ -189,6 +212,11 @@ export function StoreProvider({ children }) {
         s.view = "workspace";
         s.tab = "projects";
         s.currentProjectId = null;
+      });
+    },
+    setReportTab(tab) {
+      patch((s) => {
+        s.activeReportTab = tab;
       });
     },
     async createWorkspace(name) {

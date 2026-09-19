@@ -81,6 +81,7 @@ from tools import (
     experiment_tracking,
     feature_engineering,
     feature_selection,
+    failure_analysis,
     hyperparameter_tuning,
     model_registry,
     model_runner,
@@ -347,18 +348,29 @@ def node_vectorize_text(state: PipelineState) -> PipelineState:
 
 
 def node_train(state: PipelineState) -> PipelineState:
-    """Runs every candidate the validated ExperimentPlan named (Phase 3
-    model registry) - classical sklearn/xgboost/lightgbm models only.
-    AutoGluon is NOT in this registry (see tools/model_registry.py's module
-    docstring) and this pooled/single_entity path never calls it directly;
-    AutoGluon only runs for the per_entity (tools/automl_training.train_models,
-    called per entity) and hierarchical (train_hierarchical_timeseries) scope
-    strategies below. Falls back to a minimal safe default only when none of
-    the plan's candidate_model_families match the registry for this
-    problem_type, so a run never trains zero models."""
+    """Runs candidates for this pooled/single_entity path - classical
+    sklearn/xgboost/lightgbm models only. AutoGluon is NOT in this registry
+    (see tools/model_registry.py's module docstring) and this path never
+    calls it directly; AutoGluon only runs for the per_entity
+    (tools/automl_training.train_models, called per entity) and hierarchical
+    (train_hierarchical_timeseries) scope strategies below.
+
+    For classification and regression, every registered model for the
+    problem type is trained (not just the Planner's shortlist) - the
+    Planner's candidate_model_families remains informative context for the
+    plan narrative/report, but doesn't gate which models actually run. A
+    model that fails (missing dependency, unsupported validation strategy,
+    training/prediction/scoring error) is still reported per-model via
+    failure_analysis.build_failure_summary()/explain_failure_summary() below
+    rather than silently dropped. Other problem types keep the plan-driven
+    resolve_candidates()/default_candidates() fallback so a run never trains
+    zero models."""
     plan = state["plan"]
     problem_type = plan.problem_type or ProblemType.REGRESSION
-    candidates, _unmatched = model_registry.resolve_candidates(problem_type, plan.candidate_model_families)
+    if problem_type in (ProblemType.CLASSIFICATION, ProblemType.REGRESSION):
+        candidates = model_registry.get_registry_for_problem_type(problem_type)
+    else:
+        candidates, _unmatched = model_registry.resolve_candidates(problem_type, plan.candidate_model_families)
     if not candidates:
         candidates = model_registry.default_candidates(problem_type)
 
@@ -390,6 +402,14 @@ def node_train(state: PipelineState) -> PipelineState:
     )
     metrics["text_feature_tokens"] = state.get("text_vectorization_log", {}).get("feature_tokens", {})
     metrics["tuning_results"] = state.get("tuning_results", {})
+    failure_summary = failure_analysis.build_failure_summary(
+        metrics,
+        state.get("dataset_profile"),
+        state.get("data_quality_report"),
+        plan,
+    )
+    metrics["failure_summary"] = failure_summary
+    metrics["failure_explanation"] = failure_analysis.explain_failure_summary(failure_summary)
     return {"metrics": metrics, "chart_data": chart_data}
 
 
@@ -401,9 +421,12 @@ def node_tune_models(state: PipelineState) -> PipelineState:
     """
     plan = state["plan"]
     problem_type = plan.problem_type or ProblemType.REGRESSION
-    candidates, _unmatched = model_registry.resolve_candidates(
-        problem_type, plan.candidate_model_families
-    )
+    if problem_type in (ProblemType.CLASSIFICATION, ProblemType.REGRESSION):
+        candidates = model_registry.get_registry_for_problem_type(problem_type)
+    else:
+        candidates, _unmatched = model_registry.resolve_candidates(
+            problem_type, plan.candidate_model_families
+        )
     if not candidates:
         candidates = model_registry.default_candidates(problem_type)
     if problem_type not in (ProblemType.CLASSIFICATION, ProblemType.REGRESSION):

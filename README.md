@@ -1,11 +1,11 @@
 # Agentic AI ML Pipeline
 
-Implementation of `Agentic_ML_Pipeline_Implementation_Plan.txt` (Phases 1-8).
-Given a dataset + business problem description, it plans, cleans, engineers
-features, trains models via AutoGluon, evaluates, and produces a
-recommendation report. The LLM only ever sees column names/dtypes/stats/
-metrics/logs - never raw rows (see Section 1 of the plan and
-`tests/test_llm_safety.py`).
+Implementation of `Agentic_ML_Pipeline_Implementation_Plan.txt` (Phases 1-10).
+Given a dataset and business problem description, it profiles the data, plans
+and validates an experiment, cleans and engineers features, trains candidate
+models, evaluates them, and produces an HTML recommendation report. The LLM
+only ever sees column names/dtypes/stats/metrics/logs - never raw rows (see
+Section 1 of the plan and `tests/test_llm_safety.py`).
 
 ## Setup
 
@@ -45,6 +45,34 @@ regression (`house_price_regression.csv`), and three forecasting variants -
 simple/no-seasonality (`simple_timeseries.csv`), seasonal
 (`sales_forecasting.csv`), and multi-entity (`multi_entity_timeseries.csv`).
 
+### Web application workflow
+
+The web application is a local, single-user workflow backed by FastAPI and
+SQLite:
+
+1. Create **project**. Both
+  are organizational metadata and are optional for the pipeline itself.
+2. Upload a `.csv`, `.xls`, or `.xlsx` dataset to the project. The API streams
+  the file to `uploads/`, validates that it can be parsed, stores its metadata,
+  and returns the columns, row count, and a five-row preview.
+3. Inspect the dataset's EDA snapshot from the project UI. It includes summary
+  statistics, a sample, and correlations; raw rows are not sent to an LLM.
+4. Enter a business description and start a run. The API creates a persistent
+  SQLite run record and queues the pipeline in a bounded worker pool. Runs
+  report `queued`, `running`, `completed`, `failed`, `cancelled`, or
+  `needs_clarification`.
+5. Poll the run for its current pipeline step and Planner output while it runs.
+  A completed run exposes the generated HTML report; a clarification result
+  exposes the question that should inform a subsequent run.
+  A queued run can be cancelled immediately, while a running run cancels at
+  the next pipeline-node boundary.
+
+The main API endpoints for this workflow are `POST /api/workspaces`,
+`POST /api/workspaces/{workspace_id}/projects`, `POST /api/datasets`,
+`GET /api/datasets/{dataset_id}/eda`, `POST /api/runs`,
+`GET /api/runs/{run_id}`, `POST /api/runs/{run_id}/cancel`, and
+`GET /api/runs/{run_id}/report`.
+
 ## Orchestration (pipeline graph)
 
 The pipeline is a LangGraph `StateGraph` (`orchestration/graph.py`, built by
@@ -63,19 +91,23 @@ metrics text, never your actual data rows.
 
 ```mermaid
 flowchart TD
-    U([You: upload dataset\n+ business description]) --> DI[Data Intelligence\nprofile + quality + problem detection\nno LLM]
+    U([Web UI: project\n+ upload dataset + business description]) --> Q[Queue run\nSQLite + bounded worker pool]
+    Q --> DI[Data Intelligence\nprofile + quality + problem detection\nno LLM]
     DI --> PL[["Planner Agent (LLM)\nreads schema/stats only ->\nproposes ExperimentPlan"]]
-    PL --> TR[Train candidate models\nAutoGluon + classical\nno LLM]
+    PL --> ED[EDA\nsummary, distributions, correlations\nno LLM]
+    ED --> PP[Preprocessing\nclean + engineer features + vectorize text\nno LLM]
+    PP --> HT[Hyperparameter tuning\ndeterministic candidate search\nno LLM]
+    HT --> TR[Train candidate models\nAutoGluon + classical\nno LLM]
     TR --> EV[["Evaluator Agent (LLM)\nreads metrics only ->\nretry / accept / stop"]]
     EV -- retry --> TR
     EV -- accept --> RC[["Recommendation Agent (LLM)\nexplains the already-decided\nwinner, can't change it"]]
     RC --> RP[["Reporter Agent (LLM)\nwrites executive summary prose\nevery number is deterministic"]]
-    RP --> OUT([HTML report])
+    RP --> OUT([Result])
 
     classDef llm fill:#e9d5ff,stroke:#7e22ce,color:#3b0764;
     classDef det fill:#ffffff,stroke:#64748b,color:#1e293b;
     class PL,EV,RC,RP llm;
-    class DI,TR det;
+    class DI,ED,PP,HT,TR det;
 ```
 
 ### Full branching graph
@@ -89,13 +121,16 @@ flowchart TD
     E --> F[validate_plan]
     F -- needs_clarification --> Z([END])
 
-    F -- pooled / none --> G[eda]
+    F -- pooled / none --> G[feature_selection]
     F -- single_entity --> H[filter_entity]
     H --> G
-    G --> I[clean]
-    I --> J[feature_engineer]
-    J --> K[split]
-    K --> L[train]
+    G --> I[eda]
+    I --> J[clean\npreprocessing]
+    J --> K[feature_engineer\npreprocessing]
+    K --> K2[split]
+    K2 --> K3[vectorize_text\npreprocessing]
+    K3 --> K4[tune_models\nhyperparameter tuning]
+    K4 --> L[train]
 
     F -- per_entity --> M[per_entity_pipeline]
     F -- hierarchical --> N[hierarchical_train]
@@ -139,10 +174,16 @@ report and only falls back to `needs_clarification` (routing straight to
 
 | scope_strategy | route |
 |---|---|
-| `pooled` / none | `eda -> clean -> feature_engineer -> split -> train` |
-| `single_entity` | `filter_entity` (subset to one entity, drop the entity column) -> rejoins at `eda` |
-| `per_entity` | `per_entity_pipeline` - loops clean/engineer/split/train once per entity value, in-process, no LLM call per entity |
+| `pooled` / none | `feature_selection -> eda -> clean -> feature_engineer -> split -> vectorize_text -> tune_models -> train` |
+| `single_entity` | `filter_entity` (subset to one entity, drop the entity column) -> rejoins at `feature_selection` |
+| `per_entity` | `per_entity_pipeline` - loops preprocessing, split, and train once per entity value, in-process, with no LLM call per entity |
 | `hierarchical` | `hierarchical_train` - AutoGluon `TimeSeriesPredictor` across all entities via `item_id` grouping |
+
+The standard pooled and single-entity routes run deterministic hyperparameter
+tuning on the training frame before candidate training for classification and
+regression models. The final test frame is held back from tuning. Tuning is
+skipped for forecasting, per-entity AutoGluon training, and hierarchical
+forecasting, which use their own training paths.
 
 **Evaluation, retry loop, and finish:**
 ```

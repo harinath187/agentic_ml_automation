@@ -105,16 +105,24 @@ function DistributionHistogram({ distributions }) {
 function OverviewTab({ runRecord }) {
   const { plan, decision } = runRecord;
   return (
-    <div>
-      <PlanSummary plan={plan} />
+    <div className="overview-report">
+      <div className="overview-panel">
+        <PlanSummary plan={plan} />
+      </div>
+
       {decision ? (
-        <DefinitionList
-          rows={[
-            ["Outcome", decision.outcome],
-            ["Best model", decision.best_model],
-            ["Reasoning", decision.reasoning],
-          ]}
-        />
+        <div className="overview-panel overview-panel--secondary">
+          <div className="preprocessing-section-header">
+            <h3>Decision</h3>
+          </div>
+          <DefinitionList
+            rows={[
+              ["Outcome", decision.outcome],
+              ["Best model", decision.best_model],
+              ["Reasoning", decision.reasoning],
+            ]}
+          />
+        </div>
       ) : (
         <Unavailable label="Evaluation decision" />
       )}
@@ -127,50 +135,76 @@ function DataQualityTab({ runRecord }) {
   const quality = runRecord.data_quality_report;
   if (!profile && !quality) return <Unavailable label="Dataset profile / quality report" />;
 
+  const rowCount = Number(profile?.row_count ?? quality?.row_count ?? 0);
+  const columnCount = Number(profile?.column_count ?? quality?.column_count ?? 0);
+  const duplicateCount = Number(quality?.duplicate_row_count ?? profile?.duplicate_row_count ?? 0);
+  const duplicatePct = Number(quality?.duplicate_row_pct ?? profile?.duplicate_row_pct ?? 0);
+  const outlierEntries = Object.entries(quality?.possible_outlier_columns || {})
+    .filter(([, info]) => info && typeof info === "object")
+    .sort(([, a], [, b]) => Number(b?.pct ?? 0) - Number(a?.pct ?? 0));
+  const score = Number(quality?.overall_quality_score ?? 100);
+
+  const statusHeading =
+    score >= 80 ? "Looks good" :
+    score >= 60 ? "A few values worth a quick look" :
+    "Needs attention";
+
+  const narrative = [
+    `Your dataset has ${rowCount.toLocaleString()} ${rowCount === 1 ? "record" : "records"} across ${columnCount} ${columnCount === 1 ? "column" : "columns"},`,
+    duplicateCount > 0
+      ? `with ${duplicateCount.toLocaleString()} duplicate row${duplicateCount === 1 ? "" : "s"} (${duplicatePct.toFixed(1)}%).`
+      : "with no duplicate rows.",
+    outlierEntries.length
+      ? `A small number of entries in ${outlierEntries.length} ${outlierEntries.length === 1 ? "column" : "columns"} look unusually high or low compared to the rest — these are flagged below in case they're data entry mistakes.`
+      : "No unusual outlier patterns were detected in the numeric fields.",
+  ].join(" ");
+
   return (
-    <div>
-      {profile && (
-        <>
-          <h3>Dataset profile</h3>
-          <DefinitionList
-            rows={[
-              ["Rows", profile.row_count],
-              ["Columns", profile.column_count],
-              ["Duplicate rows", `${profile.duplicate_row_count} (${profile.duplicate_row_pct}%)`],
-              ["Numerical columns", profile.numerical_columns?.join(", ")],
-              ["Categorical columns", profile.categorical_columns?.join(", ")],
-              ["Datetime columns", profile.datetime_columns?.join(", ")],
-              ["Constant columns", profile.constant_columns?.join(", ")],
-              ["Near-constant columns", profile.near_constant_columns?.join(", ")],
-            ]}
-          />
-        </>
-      )}
-      {quality && (
-        <>
-          <h3>Data quality findings</h3>
-          <DefinitionList
-            rows={[
-              [
-                "Missing-value columns",
-                Object.entries(quality.missing_value_columns || {})
-                  .map(([col, pct]) => `${col} (${pct}%)`)
-                  .join(", "),
-              ],
-              ["Duplicate rows", `${quality.duplicate_row_count} (${quality.duplicate_row_pct}%)`],
-              ["Constant columns", quality.constant_columns?.join(", ")],
-              ["Near-constant columns", quality.near_constant_columns?.join(", ")],
-              [
-                "Possible outlier columns",
-                Object.entries(quality.possible_outlier_columns || {})
-                  .map(([col, info]) => `${col} (${info.count}, ${info.pct}%)`)
-                  .join(", "),
-              ],
-              ["Invalid dtype columns", quality.invalid_dtype_columns?.join(", ")],
-            ]}
-          />
-        </>
-      )}
+    <div className="data-quality-report">
+      <div className="quality-status-header">
+        <h3>{statusHeading}</h3>
+        <p>{narrative}</p>
+      </div>
+
+      <div className="quality-score-grid">
+        <div className="quality-score-tile">
+          <span className="quality-score-label">Records</span>
+          <strong>{rowCount.toLocaleString()}</strong>
+        </div>
+        <div className="quality-score-tile">
+          <span className="quality-score-label">Fields tracked</span>
+          <strong>{columnCount.toLocaleString()}</strong>
+        </div>
+        <div className="quality-score-tile">
+          <span className="quality-score-label">Duplicate rows</span>
+          <strong>{duplicateCount.toLocaleString()}</strong>
+        </div>
+      </div>
+
+      <div className="quality-outliers-panel">
+        <h3>Unusual values by column</h3>
+        <p>How many entries in each field fall far outside the typical range.</p>
+
+        {outlierEntries.length ? (
+          <div className="quality-outlier-list">
+            {outlierEntries.map(([column, info]) => {
+              const count = Number(info?.count ?? 0);
+              const pct = Number(info?.pct ?? 0);
+              return (
+                <div className="quality-outlier-row" key={column}>
+                  <div className="quality-outlier-name">{column}</div>
+                  <div className="quality-outlier-metrics">
+                    <span>{count.toLocaleString()} entries</span>
+                    <span className="quality-outlier-percent">{pct.toFixed(1)}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="quality-empty-state">No unusual values detected in the numeric columns.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -307,7 +341,36 @@ function formatLogValue(value) {
   if (value === null || value === undefined || (Array.isArray(value) && !value.length) || isEmptyObject) {
     return <span className="plan-empty">None</span>;
   }
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
+
+  if (Array.isArray(value)) {
+    return (
+      <span className="log-compact-list">
+        {value.map((item, index) => (
+          <span key={`${String(item)}-${index}`} className="log-compact-item">
+            {typeof item === "object" && item !== null ? formatLogValue(item) : String(item)}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (!entries.length) return <span className="plan-empty">None</span>;
+    return (
+      <span className="log-object-list">
+        {entries.map(([key, item]) => (
+          <span key={key} className="log-object-item">
+            <span className="log-object-key">{key}</span>
+            <span className="log-object-colon">:</span>
+            <span className="log-object-value">{formatLogValue(item)}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
+
+  return <span className="mono">{String(value)}</span>;
 }
 
 function LogSection({ title, log }) {
@@ -365,6 +428,27 @@ function ClassDistributionChart({ distribution }) {
   );
 }
 
+function PreprocessingSection({ title, log, summary, accentClass }) {
+  const entries = log ? Object.entries(log) : [];
+  const summaryItems = summary || [];
+
+  return (
+    <div className={`preprocessing-detail-panel preprocessing-detail-panel--${accentClass || "neutral"}`}>
+      <div className="preprocessing-section-header">
+        <h3>{title}</h3>
+        {summaryItems.length > 0 && (
+          <div className="preprocessing-section-summary">
+            {summaryItems.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      {entries.length ? <LogSection log={log} /> : <p className="muted">No data reported for this stage.</p>}
+    </div>
+  );
+}
+
 function PreprocessingTab({ runRecord }) {
   const { cleaning_log, feature_log, feature_selection_log, split_log } = runRecord;
   const charts = runRecord.report_charts || {};
@@ -372,11 +456,62 @@ function PreprocessingTab({ runRecord }) {
   if (!cleaning_log && !feature_log && !feature_selection_log && !split_log && !hasExplainabilityCharts) {
     return <Unavailable label="Preprocessing logs" />;
   }
+
+  const kept = Array.isArray(feature_selection_log?.kept) ? feature_selection_log.kept : [];
+  const dropped = Array.isArray(feature_selection_log?.dropped) ? feature_selection_log.dropped : [];
+  const encodedCount = Array.isArray(cleaning_log?.encoded_columns) ? cleaning_log.encoded_columns.length : 0;
+  const imputationCount = Object.keys(cleaning_log?.imputation || {}).length;
+  const cappedTotal = Object.values(cleaning_log?.outliers_capped || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  const duplicateRows = Number(cleaning_log?.duplicates_removed || 0);
+  const trainRows = Number(split_log?.train_rows || 0);
+  const testRows = Number(split_log?.test_rows || 0);
+  const splitMethod = split_log?.method || "not reported";
+  const lagCount = Array.isArray(feature_log?.lag_features) ? feature_log.lag_features.length : 0;
+  const rollingCount = Array.isArray(feature_log?.rolling_features) ? feature_log.rolling_features.length : 0;
+
   return (
-    <div>
-      <LogSection title="Feature selection" log={feature_selection_log} />
-      <LogSection title="Cleaning" log={cleaning_log} />
-      <LogSection title="Feature engineering" log={feature_log} />
+    <div className="preprocessing-report">
+      <div className="preprocessing-detail-layout">
+        <PreprocessingSection
+          title="Feature selection"
+          log={feature_selection_log}
+          accentClass="primary"
+          summary={[
+            `${kept.length} columns kept`,
+            `${dropped.length} excluded`,
+          ]}
+        />
+        <PreprocessingSection
+          title="Cleaning"
+          log={cleaning_log}
+          accentClass="secondary"
+          summary={[
+            `${imputationCount} imputations`,
+            `${encodedCount} encoded columns`,
+            `${cappedTotal} outliers capped`,
+            duplicateRows ? `${duplicateRows} duplicates dropped` : "No duplicate rows",
+          ].filter(Boolean)}
+        />
+        <PreprocessingSection
+          title="Feature engineering"
+          log={feature_log}
+          accentClass="accent"
+          summary={[
+            `${lagCount} lag features`,
+            `${rollingCount} rolling features`,
+          ]}
+        />
+        <PreprocessingSection
+          title="Train/test split"
+          log={split_log}
+          accentClass="neutral"
+          summary={[
+            `${splitMethod}`,
+            `${trainRows} train / ${testRows} test`,
+          ]}
+        />
+      </div>
+
       {hasExplainabilityCharts && (
         <section>
           <h3>Feature importance</h3>
@@ -387,7 +522,7 @@ function PreprocessingTab({ runRecord }) {
           </div>
         </section>
       )}
-      <LogSection title="Train/test split" log={split_log} />
+
       {split_log?.class_distribution && (
         <section className="class-distribution-section">
           <h3>Class distribution</h3>
@@ -421,52 +556,109 @@ function formatMetricValue(value) {
   return String(value);
 }
 
-function ModelMetricsTable({ results, bestModel }) {
+function metricLabel(key) {
+  const labels = {
+    score_test: "Score",
+    score_val: "Score val",
+    accuracy: "Accuracy",
+    precision: "Prec.",
+    recall: "Recall",
+    f1: "F1",
+    roc_auc: "AUC",
+    pr_auc: "PR AUC",
+    r2: "R²",
+    rmse: "RMSE",
+    mae: "MAE",
+    mape: "MAPE",
+    smape: "SMAPE",
+    mase: "MASE",
+    kappa: "Kappa",
+    mcc: "MCC",
+  };
+  return labels[key] || key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function modelShortCode(name) {
+  const seed = String(name || "model").trim();
+  if (!seed) return "mdl";
+  const words = seed.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (!words.length) return "mdl";
+  if (words.length === 1) return words[0].slice(0, 3).toLowerCase();
+  const initials = words.slice(0, 3).map((word) => word[0]).join("");
+  return initials.toLowerCase() || words[0].slice(0, 3).toLowerCase();
+}
+
+function getMetricKeys(rows) {
   const metricKeys = [];
   for (const key of METRIC_KEY_ORDER) {
-    if (results.some((r) => r.metrics && r.metrics[key] !== undefined)) metricKeys.push(key);
+    if (rows.some((row) => row.metrics && row.metrics[key] !== undefined && row.metrics[key] !== null)) {
+      metricKeys.push(key);
+    }
   }
-  // Catch any metric key not in the known ordering rather than silently dropping it.
-  for (const r of results) {
-    for (const key of Object.keys(r.metrics || {})) {
-      if (!metricKeys.includes(key) && key !== "confusion_matrix" && key !== "per_class") {
+  for (const row of rows) {
+    for (const key of Object.keys(row.metrics || {})) {
+      if (key !== "confusion_matrix" && key !== "per_class" && !metricKeys.includes(key)) {
         metricKeys.push(key);
       }
     }
   }
+  return metricKeys;
+}
+
+function ModelMetricsTable({ results, bestModel }) {
+  const rows = (results || []).map((result, index) => ({
+    ...result,
+    model_name: result.model_name || result.name || `Model ${index + 1}`,
+    metrics: result.metrics || {},
+  }));
+  if (!rows.length) return null;
+
+  const metricKeys = getMetricKeys(rows);
+  const maxByKey = Object.fromEntries(metricKeys.map((key) => {
+    const values = rows
+      .map((row) => Number(row.metrics?.[key]))
+      .filter((value) => Number.isFinite(value));
+    const max = values.length ? Math.max(...values) : 0;
+    return [key, max > 0 ? max : 1];
+  }));
 
   return (
-    <div className="dataset-preview">
+    <div className="dataset-preview model-metric-table-block">
       <h3>Per-model metrics</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>Status</th>
-            {metricKeys.map((key) => (
-              <th key={key}>{key}</th>
-            ))}
-            <th>Training time (s)</th>
-            <th>Errors</th>
-          </tr>
-        </thead>
-        <tbody>
-          {results.map((r) => (
-            <tr key={r.model_name} className={r.model_name === bestModel ? "best-row" : undefined}>
-              <td>
-                {r.model_name}
-                {r.model_name === bestModel ? " ★" : ""}
-              </td>
-              <td>{r.status}</td>
+      <div className="model-metric-table-wrap">
+        <table className="model-metric-table">
+          <thead>
+            <tr>
+              <th className="metric-rank-col">#</th>
+              <th className="metric-model-col">Model</th>
               {metricKeys.map((key) => (
-                <td key={key}>{formatMetricValue(r.metrics?.[key])}</td>
+                <th key={key}>{metricLabel(key)}</th>
               ))}
-              <td>{r.training_time !== null && r.training_time !== undefined ? r.training_time.toFixed(2) : ""}</td>
-              <td>{r.errors || ""}</td>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.model_name} className={row.model_name === bestModel ? "best-row" : undefined}>
+                <td className="metric-rank-col">{index + 1}</td>
+                <td className="metric-model-col">
+                  <div className="model-name-stack">
+                    <span className="model-name">{row.model_name}</span>
+                    <small className="model-tag">{modelShortCode(row.model_name)}</small>
+                  </div>
+                </td>
+                {metricKeys.map((key) => {
+                  const value = row.metrics?.[key];
+                  return (
+                    <td key={`${row.model_name}-${key}`} className="metric-value-cell">
+                      <span className="metric-value">{formatMetricValue(value)}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -474,37 +666,113 @@ function ModelMetricsTable({ results, bestModel }) {
 function FlatModelMetricsTable({ models, bestModel }) {
   const entries = Object.entries(models || {});
   if (!entries.length) return null;
-  const metricKeys = [];
-  for (const key of METRIC_KEY_ORDER) {
-    if (entries.some(([, m]) => m[key] !== undefined)) metricKeys.push(key);
-  }
+
+  const metricKeys = getMetricKeys(entries.map(([name, metrics]) => ({ model_name: name, metrics })));
+  const maxByKey = Object.fromEntries(metricKeys.map((key) => {
+    const values = entries
+      .map(([, metrics]) => Number(metrics?.[key]))
+      .filter((value) => Number.isFinite(value));
+    const max = values.length ? Math.max(...values) : 0;
+    return [key, max > 0 ? max : 1];
+  }));
+
   return (
-    <div className="dataset-preview">
+    <div className="dataset-preview model-metric-table-block">
       <h3>Per-model metrics</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Model</th>
-            {metricKeys.map((key) => (
-              <th key={key}>{key}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map(([name, m]) => (
-            <tr key={name} className={name === bestModel ? "best-row" : undefined}>
-              <td>
-                {name}
-                {name === bestModel ? " ★" : ""}
-              </td>
+      <div className="model-metric-table-wrap">
+        <table className="model-metric-table">
+          <thead>
+            <tr>
+              <th className="metric-rank-col">#</th>
+              <th className="metric-model-col">Model</th>
               {metricKeys.map((key) => (
-                <td key={key}>{formatMetricValue(m[key])}</td>
+                <th key={key}>{metricLabel(key)}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {entries.map(([name, metrics], index) => (
+              <tr key={name} className={name === bestModel ? "best-row" : undefined}>
+                <td className="metric-rank-col">{index + 1}</td>
+                <td className="metric-model-col">
+                  <div className="model-name-stack">
+                    <span className="model-name">{name}</span>
+                    <small className="model-tag">{modelShortCode(name)}</small>
+                  </div>
+                </td>
+                {metricKeys.map((key) => {
+                  const value = metrics?.[key];
+                  return (
+                    <td key={`${name}-${key}`} className="metric-value-cell">
+                      <span className="metric-value">{formatMetricValue(value)}</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
+  );
+}
+
+function FailureSummary({ summary, explanation }) {
+  if (!summary) return null;
+  const suitabilityLabel = {
+    suitable: "Dataset checks passed",
+    suitable_with_warnings: "Dataset is usable with warnings",
+    not_suitable: "Dataset needs attention before modeling",
+  }[summary.dataset_suitability] || "Issues detected";
+
+  return (
+    <section className="model-health-panel">
+      <div className="model-health-header">
+        <div>
+          <h3>Model health</h3>
+          <p className="muted">{suitabilityLabel}</p>
+        </div>
+        <span className={`status-pill status-pill--${summary.dataset_suitability === "not_suitable" ? "error" : "warning"}`}>
+          {summary.successful_model_count} of {summary.candidate_count} models succeeded
+        </span>
+      </div>
+
+      {explanation?.summary && (
+        <div className="model-health-explanation">
+          <strong>What this means</strong>
+          <p>{explanation.summary}</p>
+          {explanation.recommendations?.length > 0 && (
+            <ul>
+              {explanation.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {summary.dataset_issues?.length > 0 && (
+        <div className="model-health-list">
+          <h4>Dataset issues</h4>
+          {summary.dataset_issues.map((issue) => (
+            <div className="model-health-item" key={`${issue.category}-${issue.detail}`}>
+              <strong>{issue.category.replaceAll("_", " ")}</strong>
+              <span>{issue.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {summary.model_failures?.length > 0 && (
+        <div className="model-health-list">
+          <h4>Models that could not run</h4>
+          {summary.model_failures.map((failure) => (
+            <details className="model-health-item" key={failure.model_name}>
+              <summary><strong>{failure.model_name}</strong><span>{failure.message}</span></summary>
+              {failure.technical_error && <code>{failure.technical_error}</code>}
+            </details>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -519,6 +787,7 @@ function ModelsTab({ runRecord }) {
         Evaluation metric: {metrics.eval_metric}
         {metrics.per_entity && ` — averaged across ${metrics.entities_trained} entities`}
       </p>
+      <FailureSummary summary={metrics.failure_summary} explanation={metrics.failure_explanation} />
       {modelComparisonChart ? (
         <ReportChart
           uri={modelComparisonChart}
@@ -582,41 +851,47 @@ function RecommendationTab({ runRecord }) {
   const rec = runRecord.recommendation;
   if (!rec) return <Unavailable label="Recommendation" />;
   return (
-    <div>
+    <div className="result-section-stack">
       {rec.flagged_for_review && (
-        <div className="card warning">
+        <div className="result-section-panel warning-panel">
           <strong>Flagged for review:</strong> {rec.flag_reason}
         </div>
       )}
 
-      <div className="recommendation-hero">
-        <div>
-          <span className="muted">Recommended model</span>
-          <h3>{rec.recommended_model}</h3>
+      <div className="result-section-panel recommendation-hero-panel">
+        <div className="recommendation-hero">
+          <div>
+            <span className="muted">Recommended model</span>
+            <h3>{rec.recommended_model}</h3>
+          </div>
+          {rec.confidence_statement && (
+            <span className="confidence-badge" title={rec.confidence_statement}>
+              {rec.confidence_statement}
+            </span>
+          )}
         </div>
-        {rec.confidence_statement && (
-          <span className="confidence-badge" title={rec.confidence_statement}>
-            {rec.confidence_statement}
-          </span>
-        )}
       </div>
 
       {rec.cited_top_features?.length > 0 && (
-        <div className="recommendation-section">
-          <h4>Top features</h4>
-          <div className="chip-list">
-            {rec.cited_top_features.map((f) => (
-              <span className="chip" key={f}>{f}</span>
-            ))}
+        <div className="result-section-panel recommendation-section-panel">
+          <div className="recommendation-section">
+            <h4>Top features</h4>
+            <div className="chip-list">
+              {rec.cited_top_features.map((f) => (
+                <span className="chip" key={f}>{f}</span>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      <RecommendationProseSection title="Reason" text={rec.reason} />
-      <RecommendationProseSection title="Performance summary" text={rec.performance_summary} />
-      <RecommendationProseSection title="Comparison to alternatives" text={rec.comparison_to_alternatives} />
-      <RecommendationProseSection title="How it works" text={rec.explanation_narrative} />
-      <RecommendationProseSection title="Limitations" text={rec.limitations} />
+      <div className="result-section-panel">
+        <RecommendationProseSection title="Reason" text={rec.reason} />
+        <RecommendationProseSection title="Performance summary" text={rec.performance_summary} />
+        <RecommendationProseSection title="Comparison to alternatives" text={rec.comparison_to_alternatives} />
+        <RecommendationProseSection title="How it works" text={rec.explanation_narrative} />
+        <RecommendationProseSection title="Limitations" text={rec.limitations} />
+      </div>
     </div>
   );
 }
@@ -625,9 +900,12 @@ function BusinessInterpretationTab({ runRecord }) {
   const rec = runRecord.recommendation;
   if (!rec?.business_interpretation) return <Unavailable label="Business interpretation" />;
   return (
-    <div>
-      <h3>Recommended model: {rec.recommended_model}</h3>
-      <p>{rec.business_interpretation}</p>
+    <div className="result-section-panel">
+      <div className="preprocessing-section-header">
+        <h3>Recommended model</h3>
+      </div>
+      <h3 className="business-interpretation-title">{rec.recommended_model}</h3>
+      <p className="business-interpretation-copy">{rec.business_interpretation}</p>
     </div>
   );
 }
@@ -639,18 +917,20 @@ function ChartsTab({ runRecord }) {
   );
   if (!entries.length) return <Unavailable label="Charts" />;
   return (
-    <div className="charts-grid">
-      {entries.map(([name, uri]) => (
-        <figure key={name}>
-          <img src={uri} alt={name} />
-          <figcaption className="muted">{name.replace(/_/g, " ")}</figcaption>
-        </figure>
-      ))}
+    <div className="result-section-panel">
+      <div className="charts-grid">
+        {entries.map(([name, uri]) => (
+          <figure key={name}>
+            <img src={uri} alt={name} />
+            <figcaption className="muted">{name.replace(/_/g, " ")}</figcaption>
+          </figure>
+        ))}
+      </div>
     </div>
   );
 }
 
-const TABS = [
+export const REPORT_TABS = [
   { id: "overview", label: "Overview", Component: OverviewTab },
   { id: "data-quality", label: "Data Quality", Component: DataQualityTab },
   { id: "eda", label: "EDA", Component: EdaTab },
@@ -661,26 +941,33 @@ const TABS = [
   { id: "charts", label: "Charts", Component: ChartsTab },
 ];
 
-export default function ReportTabs({ runRecord }) {
-  const [activeTab, setActiveTab] = useState(TABS[0].id);
+export default function ReportTabs({ runRecord, activeTab, onTabChange, showTabs = true }) {
+  const [internalActiveTab, setInternalActiveTab] = useState(REPORT_TABS[0].id);
   if (!runRecord) return null;
 
-  const Active = TABS.find((t) => t.id === activeTab)?.Component ?? TABS[0].Component;
+  const selectedTab = activeTab || internalActiveTab;
+  const Active = REPORT_TABS.find((t) => t.id === selectedTab)?.Component ?? REPORT_TABS[0].Component;
+  const selectTab = (tabId) => {
+    setInternalActiveTab(tabId);
+    onTabChange?.(tabId);
+  };
 
   return (
     <div>
-      <div className="report-tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`report-tab${activeTab === tab.id ? " active" : ""}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {showTabs && (
+        <div className="report-tabs">
+          {REPORT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`report-tab${selectedTab === tab.id ? " active" : ""}`}
+              onClick={() => selectTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="report-tab-panel">
         <Active runRecord={runRecord} />
       </div>

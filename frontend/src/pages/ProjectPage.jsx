@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelRun, getRun, startRun, uploadDataset } from "../api";
-import Breadcrumbs from "../components/Breadcrumbs";
 import DatasetEdaModal from "../components/DatasetEdaModal";
 import PlanSummary from "../components/PlanSummary";
 import ReportTabs from "../components/ReportTabs";
@@ -77,9 +76,6 @@ function RunDetails({ runRecord, datasets, runError, onCancel, onSubmitClarifica
         <div className="card error-card"><h3>Pipeline failed</h3><p>{runRecord.error}</p></div>
       )}
 
-      {runRecord.status === "completed" && (
-        <div className="card"><h3>Results</h3><ReportTabs runRecord={runRecord} /></div>
-      )}
     </div>
   );
 }
@@ -101,6 +97,9 @@ export default function ProjectPage() {
   const [clarificationAnswer, setClarificationAnswer] = useState("");
   const pollRef = useRef(null);
   const fileInputRef = useRef(null);
+  const completedRunId = proj
+    ? runsForProject(state, proj.id).find((run) => run.status === "completed")?.id || null
+    : null;
 
   useEffect(() => {
     setDescription(proj ? proj.description || "" : "");
@@ -127,6 +126,12 @@ export default function ProjectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId]);
 
+  useEffect(() => {
+    if (!activeRunId && completedRunId) {
+      setActiveRunId(completedRunId);
+    }
+  }, [activeRunId, completedRunId]);
+
   if (!proj || !ws) {
     actions.backToProjects();
     return null;
@@ -134,10 +139,7 @@ export default function ProjectPage() {
 
   const allDatasets = datasetsForProject(state, proj.id).slice().sort((a, b) => b.createdAt - a.createdAt);
   const runs = runsForProject(state, proj.id);
-  const completedDatasetIds = new Set(
-    runs.filter((run) => run.status === "completed").map((run) => run.datasetId),
-  );
-  const datasets = allDatasets.filter((dataset) => !completedDatasetIds.has(dataset.id));
+  const datasets = allDatasets.slice(0, 1);
   const hasCompletedRun = runs.some((run) => run.status === "completed");
   const hasDescription = !!description.trim().length;
 
@@ -147,12 +149,6 @@ export default function ProjectPage() {
       actions.setProjectDescription(proj.id, "");
     }
   }, [hasCompletedRun, proj.id]);
-
-  const crumbs = [
-    { label: "Workspaces", action: actions.goWorkspaces },
-    { label: ws.name, action: () => actions.openWorkspace(ws.id) },
-    { label: proj.name },
-  ];
 
   function onDescriptionChange(value) {
     setDescription(value);
@@ -237,30 +233,20 @@ export default function ProjectPage() {
     return runs.some((r) => r.datasetId === datasetId && (r.status === "queued" || r.status === "running"));
   }
 
-  async function handleDeleteProject() {
-    if (!window.confirm(`Delete project "${proj.name}"? This also deletes its datasets and runs.`)) {
-      return;
-    }
-    try {
-      await actions.deleteProject(proj.id);
-    } catch (err) {
-      window.alert(err.message);
-    }
-  }
-
   return (
     <>
-      <Breadcrumbs parts={crumbs} />
       <div className="page-head">
         <div>
           <h1>{proj.name}</h1>
-          <p>Upload a CSV data source and describe the business problem, then run the pipeline against it.</p>
+          <p>{runRecord?.status === "completed" ? "Review the completed pipeline result." : "Upload a CSV data source and describe the business problem, then run the pipeline against it."}</p>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={handleDeleteProject}>
-          🗑 Delete project
+        <button className="btn btn-outline btn-sm" onClick={actions.backToProjects}>
+          ← Back to projects
         </button>
       </div>
 
+      <div className={`project-content-layout${runRecord?.status === "completed" ? " has-result" : ""}`}>
+        <div className="project-flow">
       <div className="section">
           <div className="section-head">
             <h2>Business problem</h2>
@@ -280,58 +266,60 @@ export default function ProjectPage() {
           </p>
       </div>
 
-      <div className="section">
-        <div className="section-head">
-          <h2>Upload dataset</h2>
-          <span className="hint">CSV file</span>
-        </div>
-        <div
-          className={"dropzone" + (dragging ? " drag" : "")}
-          onDragEnter={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) handleFile(file);
-          }}
-        >
-          <div className="ico">⬆️</div>
-          <div className="title">Drag &amp; drop a CSV file here</div>
-          <div className="sub">or</div>
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            style={{ marginTop: 10 }}
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? "Uploading…" : "Browse files"}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xls,.xlsx"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-              e.target.value = "";
+      {!hasCompletedRun && !allDatasets.length && (
+        <div className="section">
+          <div className="section-head">
+            <h2>Upload dataset</h2>
+            <span className="hint">One dataset per project</span>
+          </div>
+          <div
+            className={"dropzone" + (dragging ? " drag" : "")}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragging(true);
             }}
-          />
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) handleFile(file);
+            }}
+          >
+            <div className="ico">⬆️</div>
+            <div className="title">Drag &amp; drop a CSV file here</div>
+            <div className="sub">or</div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ marginTop: 10 }}
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? "Uploading…" : "Browse files"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFile(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          {uploadError && <p className="error">{uploadError}</p>}
         </div>
-        {uploadError && <p className="error">{uploadError}</p>}
-      </div>
+      )}
 
       {datasets.length > 0 && (
         <div className="section">
@@ -355,11 +343,11 @@ export default function ProjectPage() {
                   <div className="list-side">
                     <button
                       className="btn btn-accent btn-sm"
-                      disabled={busy || !hasDescription}
-                      title={!hasDescription ? "Add a business problem description first" : ""}
+                      disabled={busy || hasCompletedRun || !hasDescription}
+                      title={hasCompletedRun ? "This project already has a completed result" : !hasDescription ? "Add a business problem description first" : ""}
                       onClick={() => runWithDescription(d.id, description)}
                     >
-                      {busy ? "Running…" : "▶ Run pipeline"}
+                      {busy ? "Running…" : hasCompletedRun ? "Completed" : "▶ Run pipeline"}
                     </button>
                   </div>
                 </div>
@@ -394,6 +382,23 @@ export default function ProjectPage() {
           </div>
         ) : (
           <div className="empty">No runs yet for this project.</div>
+        )}
+      </div>
+
+        </div>
+        {runRecord?.status === "completed" && (
+          <aside className="project-results-panel">
+            <div className="section-head">
+              <h2>Result</h2>
+              <span className="hint">Selected report section</span>
+            </div>
+            <ReportTabs
+              runRecord={runRecord}
+              activeTab={state.activeReportTab}
+              onTabChange={actions.setReportTab}
+              showTabs={false}
+            />
+          </aside>
         )}
       </div>
 

@@ -55,6 +55,8 @@ class EvaluationResult(BaseModel):
     training_time: Optional[float] = None
     prediction_time: Optional[float] = None
     errors: Optional[str] = None
+    failure_category: Optional[str] = None
+    failure_message: Optional[str] = None
     feature_importance: Optional[dict] = Field(
         default=None,
         description="Top feature -> importance score (classification/regression only). "

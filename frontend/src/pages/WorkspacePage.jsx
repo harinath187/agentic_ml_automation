@@ -1,5 +1,4 @@
 import { useState } from "react";
-import Breadcrumbs from "../components/Breadcrumbs";
 import DatasetEdaModal from "../components/DatasetEdaModal";
 import Modal from "../components/Modal";
 import {
@@ -8,9 +7,7 @@ import {
   datasetsIn,
   fmtBytes,
   fmtDate,
-  fmtDateTime,
   projectsIn,
-  runsIn,
   useStore,
 } from "../store";
 
@@ -68,77 +65,6 @@ function NewProjectModal({ ws, onClose }) {
         </button>
       </div>
     </Modal>
-  );
-}
-
-function RunStatusPill({ status }) {
-  const map = {
-    completed: { cls: "pill-success", label: "Completed" },
-    succeeded: { cls: "pill-success", label: "Completed" },
-    failed: { cls: "pill-running", label: "Failed" },
-    cancelled: { cls: "pill-running", label: "Cancelled" },
-    needs_clarification: { cls: "pill-running", label: "Needs input" },
-    running: { cls: "pill-running", label: "Running…" },
-    queued: { cls: "pill-running", label: "Queued…" },
-  };
-  const info = map[status] || { cls: "pill-running", label: status };
-  return <span className={`pill ${info.cls}`}>{info.label}</span>;
-}
-
-function DashboardBody({ ws }) {
-  const { state } = useStore();
-  const projCount = projectsIn(state, ws.id).length;
-  const runs = runsIn(state, ws.id);
-  const expCount = projectsIn(state, ws.id).filter((p) => datasetsForProject(state, p.id).length > 0).length;
-  const weekAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-  const runs7d = runs.filter((r) => r.createdAt >= weekAgo).length;
-
-  return (
-    <>
-      <div className="tiles">
-        <div className="tile">
-          <div className="tile-label">Projects</div>
-          <div className="tile-value">{projCount}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Experiments</div>
-          <div className="tile-value">{expCount}</div>
-        </div>
-        <div className="tile">
-          <div className="tile-label">Runs (7d)</div>
-          <div className="tile-value">{runs7d}</div>
-        </div>
-      </div>
-      <div className="section">
-        <div className="section-head">
-          <h2>Recent runs</h2>
-          <span className="hint">Most recent pipeline executions across this workspace</span>
-        </div>
-        {runs.length ? (
-          <div className="list">
-            {runs.slice(0, 8).map((r) => {
-              const proj = state.projects.find((p) => p.id === r.projectId);
-              return (
-                <div className="list-row" key={r.id} style={{ cursor: "default" }}>
-                  <div className="list-main">
-                    <div className="list-title">{proj ? proj.name : "Unknown project"}</div>
-                    <div className="list-sub">
-                      Run · {fmtDateTime(r.createdAt)}
-                                          Run · {fmtDateTime(r.createdAt)}
-                    </div>
-                  </div>
-                  <div className="list-side">
-                    <RunStatusPill status={r.status} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="empty">No runs yet. Open a project and run the pipeline on an uploaded dataset.</div>
-        )}
-      </div>
-    </>
   );
 }
 
@@ -279,15 +205,8 @@ export default function WorkspacePage() {
     return null;
   }
 
-  const crumbs = [
-    { label: "Workspaces", action: actions.goWorkspaces },
-    { label: ws.name },
-  ];
-
   return (
     <>
-      <Breadcrumbs parts={crumbs} />
-      {state.tab === "dashboard" && <DashboardBody ws={ws} />}
       {state.tab === "projects" && <ProjectsBody ws={ws} />}
       {state.tab === "datasets" && <DatasetsBody ws={ws} />}
     </>

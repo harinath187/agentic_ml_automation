@@ -350,8 +350,13 @@ def test_failed_candidate_model_does_not_crash_the_pipeline(regression_df, monke
     assert "simulated training failure" in candidate_results["linear_regression"]["errors"]
     assert candidate_results["baseline"]["status"] == "success"
     assert candidate_results["random_forest"]["status"] == "success"
-    # the ranking/decision only ever considers the survivors
-    assert result["decision"].best_model in ("baseline", "random_forest")
+    # every registered regression model is trained (not just the plan's
+    # shortlist) - see orchestration/graph.py::node_train's docstring
+    expected = {d.name for d in model_registry.get_registry_for_problem_type(ProblemType.REGRESSION)}
+    assert set(candidate_results.keys()) == expected
+    # the ranking/decision only ever considers the survivors, never the failed model
+    assert result["decision"].best_model != "linear_regression"
+    assert candidate_results[result["decision"].best_model]["status"] == "success"
 
 
 # --- report consistency across the WHOLE comparison table, not just the -----

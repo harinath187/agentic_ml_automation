@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from agents.schemas import ProblemType, ValidationStrategyType
+from tools.failure_analysis import annotate_model_failure, build_failure_summary
 from tools.model_registry import ModelDefinition, is_dependency_available, resolve_candidates
 from tools.model_runner import run_candidates, run_model
 
@@ -138,6 +139,40 @@ def test_run_model_missing_dependency_is_skipped_not_raised(classification_train
 
     assert result.status == "skipped_missing_dependency"
     assert "definitely_not_a_real_package_xyz" in result.errors
+
+
+def test_failed_model_has_deterministic_failure_category(classification_train_test):
+    train_df, test_df = classification_train_test
+    fake_definition = ModelDefinition(
+        name="fake_model",
+        problem_types=(ProblemType.CLASSIFICATION,),
+        model_family="tree",
+        train_fn=lambda *a, **k: (_ for _ in ()).throw(ValueError("invalid feature matrix")),
+        predict_fn=lambda *a, **k: None,
+    )
+
+    result = run_model(fake_definition, train_df, test_df, "target", None, ProblemType.CLASSIFICATION)
+    annotate_model_failure(result)
+
+    assert result.status == "failed"
+    assert result.failure_category == "invalid_input"
+    assert result.failure_message
+
+
+def test_failure_summary_keeps_model_and_dataset_issues_separate():
+    metrics = {
+        "candidate_results": [
+            {
+                "model_name": "lightgbm",
+                "status": "skipped_missing_dependency",
+                "errors": "Missing dependencies: lightgbm",
+            }
+        ]
+    }
+    summary = build_failure_summary(metrics, None, None, None)
+
+    assert summary["model_failures"][0]["category"] == "missing_dependency"
+    assert summary["dataset_issues"] == []
     assert result.score_test is None
 
 

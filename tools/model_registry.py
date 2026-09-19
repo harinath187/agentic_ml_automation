@@ -57,6 +57,8 @@ class ModelResult:
         prediction_time: Optional[float] = None,
         feature_importance: Optional[dict] = None,
         explainability: Optional[dict] = None,
+        failure_category: Optional[str] = None,
+        failure_message: Optional[str] = None,
     ):
         self.model_name = model_name
         self.status = status  # "success" | "failed" | "skipped_missing_dependency" | "skipped_unsupported_validation_strategy"
@@ -82,6 +84,8 @@ class ModelResult:
         # (feature/permutation/SHAP importance, or forecasting trend/
         # seasonality signals). Same safety rationale as feature_importance.
         self.explainability = explainability
+        self.failure_category = failure_category
+        self.failure_message = failure_message
 
     def to_dict(self) -> dict:
         return {
@@ -99,6 +103,8 @@ class ModelResult:
             "prediction_time": self.prediction_time,
             "feature_importance": self.feature_importance,
             "explainability": self.explainability,
+            "failure_category": self.failure_category,
+            "failure_message": self.failure_message,
         }
 
 

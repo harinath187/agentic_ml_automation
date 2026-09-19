@@ -92,7 +92,7 @@ def test_best_model_selected_across_all_cycles_not_just_last(monkeypatch):
         fitted = {"model": None, "encoder": type("E", (), {"classes_": np.array([0, 1])})()}
         return {"accuracy": f1, "f1": f1, "precision": f1, "recall": f1}, fitted
 
-    def plan_stub(cycle, available_models, previous_records, imbalanced, selection_metric):
+    def plan_stub(cycle, available_models, previous_records, imbalanced, selection_metric, **kwargs):
         train_stub.current_cycle = cycle
         names = sorted({name for (c, name) in fake_scores if c == cycle})
         return [{"model_name": n, "extra_params": {}, "oversample": False} for n in names], "scripted"

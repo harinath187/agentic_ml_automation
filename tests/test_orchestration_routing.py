@@ -4,6 +4,8 @@ orchestration/graph.py - pure logic, no LLM or AutoML calls involved.
 import pandas as pd
 import pytest
 
+from tools import model_registry
+
 from agents.schemas import (
     DataQualityReport,
     DatasetProfile,
@@ -268,7 +270,11 @@ def _classification_train_test_dfs():
     return df.iloc[:30].reset_index(drop=True), df.iloc[30:].reset_index(drop=True)
 
 
-def test_node_train_uses_only_plan_requested_candidates():
+def test_node_train_ignores_plan_shortlist_and_trains_every_registered_model():
+    """For classification/regression, every registered model for the problem
+    type is trained regardless of the Planner's candidate_model_families -
+    the plan's shortlist is informative context only, not a training gate
+    (see orchestration/graph.py::node_train's docstring)."""
     train_df, test_df = _classification_train_test_dfs()
     plan = _plan(
         problem_type=ProblemType.CLASSIFICATION,
@@ -280,7 +286,10 @@ def test_node_train_uses_only_plan_requested_candidates():
 
     result = node_train(state)
 
-    assert set(result["metrics"]["models"].keys()) == {"baseline", "logistic_regression"}
+    expected = {d.name for d in model_registry.get_registry_for_problem_type(ProblemType.CLASSIFICATION)}
+    assert set(result["metrics"]["models"].keys()) == expected
+    assert "logistic_regression" in expected  # sanity: plan's shortlist is a subset, not the whole set
+    assert expected - {"baseline", "logistic_regression"}  # more models ran than the plan requested
 
 
 def test_node_train_falls_back_to_default_when_nothing_matches(monkeypatch):

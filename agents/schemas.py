@@ -171,6 +171,14 @@ class EvaluatorDecision(BaseModel):
     )
 
 
+class FailureExplanation(BaseModel):
+    """LLM prose grounded in deterministic model and dataset issue facts."""
+
+    summary: str = ""
+    severity: str = "warning"
+    recommendations: List[str] = Field(default_factory=list)
+
+
 class ColumnKind(str, Enum):
     NUMERICAL = "numerical"
     CATEGORICAL = "categorical"

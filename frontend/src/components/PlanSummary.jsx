@@ -22,9 +22,19 @@ export default function PlanSummary({ plan }) {
     ]);
   }
 
-  rows.push(
-    ["Models to test", plan.candidate_model_families?.length ? plan.candidate_model_families.join(", ") : null]
-  );
+  // For classification/regression, orchestration/graph.py::node_train trains
+  // every registered model for the problem type, not just the Planner's
+  // shortlist - showing that shortlist here reads as "only these models
+  // ran" when the Model comparison tab shows more, so it's hidden entirely
+  // for those problem types rather than relabeled.
+  const trainsEveryRegisteredModel = plan.problem_type === "classification" || plan.problem_type === "regression";
+
+  if (!trainsEveryRegisteredModel) {
+    rows.push([
+      "Models to test",
+      plan.candidate_model_families?.length ? plan.candidate_model_families.join(", ") : null,
+    ]);
+  }
 
   return (
     <div className="plan-summary">
@@ -40,6 +50,12 @@ export default function PlanSummary({ plan }) {
           ))}
       </dl>
       {plan.reasoning && <p className="muted plan-reasoning">{plan.reasoning}</p>}
+      {trainsEveryRegisteredModel && (
+        <p className="muted plan-reasoning">
+          Every available model for this problem type is actually trained and scored — see the Model comparison tab
+          for the full results.
+        </p>
+      )}
     </div>
   );
 }

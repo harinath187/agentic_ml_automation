@@ -44,7 +44,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error
 from sklearn.model_selection import KFold, StratifiedKFold
 
 from agents.schemas import ProblemType, ValidationStrategyType
-from tools import evaluation, explainability
+from tools import evaluation, explainability, failure_analysis
 from tools.model_registry import ModelDefinition, ModelResult, feature_columns_for, is_dependency_available
 
 CHART_SAMPLE_CAP = 200
@@ -102,6 +102,7 @@ def run_candidates(
             validation_strategy, validation_folds,
             tuned_params=(tuned_model_params or {}).get(definition.name),
         )
+        failure_analysis.annotate_model_failure(result)
         model_results.append(result)
         if result.status == "success":
             models[result.model_name] = _score_row(result)
@@ -182,6 +183,8 @@ def _to_evaluation_result(result: ModelResult, problem_type: ProblemType) -> eva
         training_time=result.training_time,
         prediction_time=result.prediction_time,
         errors=result.errors,
+        failure_category=result.failure_category,
+        failure_message=result.failure_message,
         feature_importance=result.feature_importance,
         explainability=result.explainability,
     )

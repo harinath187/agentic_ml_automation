@@ -76,6 +76,7 @@ HYPERPARAM_VARIANTS_CYCLE_2 = {
     "svm": {"C": 2.0},
     "knn": {"n_neighbors": 7},
     "neural_network": {"hidden_layer_sizes": (100, 50)},
+    "naive_bayes": {"var_smoothing": 1e-8},
 }
 HYPERPARAM_VARIANTS_CYCLE_3 = {
     "random_forest": {"n_estimators": 500, "max_depth": 20},
@@ -86,7 +87,13 @@ HYPERPARAM_VARIANTS_CYCLE_3 = {
     "svm": {"C": 0.5},
     "knn": {"n_neighbors": 15},
     "neural_network": {"hidden_layer_sizes": (100, 50, 25)},
+    "naive_bayes": {"var_smoothing": 1e-10},
 }
+
+# DummyClassifier ("baseline") has no meaningful hyperparameters to vary, so
+# it is never re-run in cycles 2/3 - re-running it would just be an identical
+# retrain regardless of run_all_models_every_cycle.
+MODELS_EXCLUDED_FROM_IMPROVEMENT_CYCLES = {"baseline"}
 
 
 @dataclass
@@ -107,6 +114,12 @@ class ClassificationCycleConfig:
     test_size: float = 0.2
     imbalance_minority_share_threshold: float = IMBALANCE_MINORITY_SHARE_THRESHOLD
     random_state: int = 42
+    # False (default): cycles 2/3 narrow to a targeted subset (imbalance-
+    # supported models, or the top-3 performers so far) to keep the 3-cycle
+    # workflow cheap. True: cycles 2/3 train/test every available model
+    # (minus MODELS_EXCLUDED_FROM_IMPROVEMENT_CYCLES), each with the
+    # improvement technique appropriate to it - roughly 3x the training cost.
+    run_all_models_every_cycle: bool = False
 
 
 def _validate_input(df: pd.DataFrame, target_column: str, feature_columns: list[str]) -> None:
@@ -182,12 +195,25 @@ def _best_names_so_far(records: list[dict], selection_metric: str, top_n: int) -
     return ranked[:top_n]
 
 
+def _improvement_candidate(name: str, cycle: int, imbalanced: bool) -> dict:
+    """Build the appropriate cycle-2/3 candidate for one model: class_weight
+    balancing (+ oversampling in cycle 3) when imbalanced and the model
+    supports it, otherwise a fixed hyperparameter variant. Never mixes
+    class_weight into a model that doesn't accept it as a constructor kwarg.
+    """
+    if imbalanced and name in CLASS_WEIGHT_SUPPORTED_MODELS:
+        return {"model_name": name, "extra_params": {"class_weight": "balanced"}, "oversample": cycle == 3}
+    variants = HYPERPARAM_VARIANTS_CYCLE_2 if cycle == 2 else HYPERPARAM_VARIANTS_CYCLE_3
+    return {"model_name": name, "extra_params": dict(variants.get(name, {})), "oversample": False}
+
+
 def _plan_cycle(
     cycle: int,
     available_models: dict,
     previous_records: list[dict],
     imbalanced: bool,
     selection_metric: str,
+    run_all_models_every_cycle: bool = False,
 ) -> tuple[list[dict], str]:
     """Deterministic, rule-based improvement policy - never retrains the
     identical configuration, never applies every possible technique blindly.
@@ -198,27 +224,26 @@ def _plan_cycle(
         candidates = [{"model_name": name, "extra_params": {}, "oversample": False} for name in available_models]
         return candidates, "baseline"
 
+    improvable = [name for name in available_models if name not in MODELS_EXCLUDED_FROM_IMPROVEMENT_CYCLES]
+
+    if run_all_models_every_cycle:
+        candidates = [_improvement_candidate(name, cycle, imbalanced) for name in improvable]
+        technique = "all_models_class_weight_and_hyperparameter_variant" if imbalanced else f"hyperparameter_variant_cycle_{cycle}"
+        return candidates, technique
+
     if imbalanced:
-        supported = [name for name in available_models if name in CLASS_WEIGHT_SUPPORTED_MODELS]
+        supported = [name for name in improvable if name in CLASS_WEIGHT_SUPPORTED_MODELS]
         if not supported:
-            supported = list(available_models)  # fall back below rather than run zero candidates
+            supported = improvable  # fall back below rather than run zero candidates
         else:
             oversample = cycle == 3  # cycle 2: class_weight only; cycle 3: class_weight + oversampling
             return (
-                [
-                    {"model_name": name, "extra_params": {"class_weight": "balanced"}, "oversample": oversample}
-                    for name in supported
-                ],
+                [_improvement_candidate(name, cycle, imbalanced=True) for name in supported],
                 "class_weight_balanced_plus_oversample" if oversample else "class_weight_balanced",
             )
 
-    variants = HYPERPARAM_VARIANTS_CYCLE_2 if cycle == 2 else HYPERPARAM_VARIANTS_CYCLE_3
-    top_names = _best_names_so_far(previous_records, selection_metric, top_n=3) or list(available_models)[:3]
-    candidates = [
-        {"model_name": name, "extra_params": dict(variants.get(name, {})), "oversample": False}
-        for name in top_names
-        if name in available_models
-    ]
+    top_names = _best_names_so_far(previous_records, selection_metric, top_n=3) or improvable[:3]
+    candidates = [_improvement_candidate(name, cycle, imbalanced=False) for name in top_names if name in improvable]
     return candidates, f"hyperparameter_variant_cycle_{cycle}"
 
 
@@ -310,7 +335,12 @@ def run_classification_cycles(
     for cycle in range(1, config.max_cycles + 1):
         completed_cycles = cycle
         candidates, technique = _plan_cycle(
-            cycle, available_models, all_records, imbalanced, config.selection_metric
+            cycle,
+            available_models,
+            all_records,
+            imbalanced,
+            config.selection_metric,
+            run_all_models_every_cycle=config.run_all_models_every_cycle,
         )
         logger.info(
             "classification_cycle_plan",
