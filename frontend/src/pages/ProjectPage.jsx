@@ -388,10 +388,6 @@ export default function ProjectPage() {
         </div>
         {runRecord?.status === "completed" && (
           <aside className="project-results-panel">
-            <div className="section-head">
-              <h2>Result</h2>
-              <span className="hint">Selected report section</span>
-            </div>
             <ReportTabs
               runRecord={runRecord}
               activeTab={state.activeReportTab}

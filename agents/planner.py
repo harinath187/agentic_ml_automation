@@ -54,7 +54,7 @@ business description clearly explains why it is legitimate.
 
 CRITICAL: You are producing an EXPERIMENT PLAN, not the final model choice.
 `candidate_model_families` must list multiple reasonable approaches to test
-(e.g. ['LightGBM', 'RandomForest', 'CatBoost']) - never a single "winning"
+(e.g. ['LightGBM', 'RandomForest', 'LogisticRegression']) - never a single "winning"
 model. The Evaluator Agent picks the best-performing candidate only after
 every one of them has actually been trained and scored; your job stops at
 proposing what to test and how to validate/score it.

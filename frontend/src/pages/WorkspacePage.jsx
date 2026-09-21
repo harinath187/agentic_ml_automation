@@ -98,6 +98,10 @@ function ProjectsBody({ ws }) {
           <div className="tile-value">{dsCount}</div>
         </div>
       </div>
+      <div className="notice">
+        To run the ML pipeline, you first need to create a project — each project holds the
+        dataset, business problem description, and pipeline runs it's trained on.
+      </div>
       <div className="section">
         <div className="section-head">
           <h2>Projects</h2>

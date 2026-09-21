@@ -209,7 +209,8 @@ def test_graph_vectorizes_text_after_split_before_train():
     edges = {(e.source, e.target) for e in app.get_graph().edges}
     assert "vectorize_text" in app.get_graph().nodes
     assert ("split", "vectorize_text") in edges
-    assert ("vectorize_text", "train") in edges
+    assert ("vectorize_text", "tune_models") in edges
+    assert ("tune_models", "train") in edges
     assert ("planner_agent", "validate_plan") in edges
 
 

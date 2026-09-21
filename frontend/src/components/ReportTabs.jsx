@@ -103,29 +103,12 @@ function DistributionHistogram({ distributions }) {
 }
 
 function OverviewTab({ runRecord }) {
-  const { plan, decision } = runRecord;
+  const { plan } = runRecord;
   return (
     <div className="overview-report">
       <div className="overview-panel">
         <PlanSummary plan={plan} />
       </div>
-
-      {decision ? (
-        <div className="overview-panel overview-panel--secondary">
-          <div className="preprocessing-section-header">
-            <h3>Decision</h3>
-          </div>
-          <DefinitionList
-            rows={[
-              ["Outcome", decision.outcome],
-              ["Best model", decision.best_model],
-              ["Reasoning", decision.reasoning],
-            ]}
-          />
-        </div>
-      ) : (
-        <Unavailable label="Evaluation decision" />
-      )}
     </div>
   );
 }
@@ -931,7 +914,7 @@ function ChartsTab({ runRecord }) {
 }
 
 export const REPORT_TABS = [
-  { id: "overview", label: "Overview", Component: OverviewTab },
+  { id: "overview", label: "Experiment Plan", Component: OverviewTab },
   { id: "data-quality", label: "Data Quality", Component: DataQualityTab },
   { id: "eda", label: "EDA", Component: EdaTab },
   { id: "preprocessing", label: "Preprocessing", Component: PreprocessingTab },

@@ -118,6 +118,13 @@ button {
   background: rgba(47, 43, 41, 0.96);
   border-bottom-color: rgba(255, 255, 255, 0.06);
 }
+:root[data-theme="dark"] .theme-switch {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #e8e6e5;
+}
+:root[data-theme="dark"] .theme-switch:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
 .brand {
   display: flex;
   align-items: center;
@@ -164,36 +171,25 @@ button {
 }
 
 .theme-switch {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  width: 54px;
-  height: 30px;
-  border-radius: 99px;
-  border: 2px solid #d7d0ca;
-  background: #d7d0ca;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid #d7d0ca;
+  background: transparent;
+  color: #6b6459;
   flex-shrink: 0;
   padding: 0;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
-.theme-switch.is-dark {
-  background: #d7d0ca;
-  border-color: #d7d0ca;
+.theme-switch:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
-.theme-switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #f2f2f2;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+.theme-switch-icon {
   transition: transform 0.18s ease;
-}
-.theme-switch.is-dark .theme-switch-thumb {
-  transform: translateX(24px);
-  background: #e8e6e5;
 }
 
 /* ---------- Layout shell ---------- */
@@ -686,6 +682,21 @@ button.card:hover,
   margin-top: 8px;
   color: var(--text-muted);
   white-space: pre-wrap;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .empty {
@@ -1612,6 +1623,7 @@ tr.best-row td {
 }
 .recommendation-hero h3 {
   margin: 2px 0 0;
+  font-size: 1.8em;
 }
 .confidence-badge {
   background: var(--accent-soft);

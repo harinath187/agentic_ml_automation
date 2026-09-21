@@ -99,7 +99,7 @@ class ExperimentPlan(BaseModel):
     )
     candidate_model_families: List[str] = Field(
         default_factory=list,
-        description="Model families to TEST, e.g. ['LightGBM', 'RandomForest', 'CatBoost']. "
+        description="Model families to TEST, e.g. ['LightGBM', 'RandomForest', 'LogisticRegression']. "
         "A shortlist of approaches, NOT the final model decision.",
     )
     validation_strategy: Optional[ValidationStrategy] = Field(

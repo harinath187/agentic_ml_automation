@@ -49,13 +49,6 @@ def _looks_like_datetime(series: pd.Series, sample_size: int = 20) -> bool:
 def _looks_like_numeric_text(series: pd.Series, sample_size: int = 20) -> bool:
     if series.dtype != object:
         return False
-
-
-def _looks_like_text(series: pd.Series) -> bool:
-    if series.dtype != object:
-        return False
-    non_null = series.dropna().astype(str)
-    return not non_null.empty and non_null.str.len().mean() >= TEXT_AVG_LENGTH_THRESHOLD
     sample = series.dropna().head(sample_size)
     if sample.empty:
         return False
@@ -64,6 +57,13 @@ def _looks_like_text(series: pd.Series) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+
+
+def _looks_like_text(series: pd.Series) -> bool:
+    if series.dtype != object:
+        return False
+    non_null = series.dropna().astype(str)
+    return not non_null.empty and non_null.str.len().mean() >= TEXT_AVG_LENGTH_THRESHOLD
 
 
 def _infer_kind(series: pd.Series, target_column: Optional[str] = None) -> ColumnKind:

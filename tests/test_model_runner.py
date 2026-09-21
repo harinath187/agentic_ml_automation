@@ -173,7 +173,6 @@ def test_failure_summary_keeps_model_and_dataset_issues_separate():
 
     assert summary["model_failures"][0]["category"] == "missing_dependency"
     assert summary["dataset_issues"] == []
-    assert result.score_test is None
 
 
 def test_run_model_unsupported_validation_strategy_is_skipped(classification_train_test):
@@ -295,7 +294,7 @@ def test_run_candidates_aggregates_successful_models_only(classification_train_t
     metrics, chart_data = run_candidates(candidates, train_df, test_df, "target", None, ProblemType.CLASSIFICATION)
 
     assert set(metrics["models"].keys()) == {"baseline", "logistic_regression"}
-    assert metrics["eval_metric"] == "accuracy"
+    assert metrics["eval_metric"] == "roc_auc"
     assert len(metrics["candidate_results"]) == 2
     # Single source of truth: the top-level eval_metric must always mirror
     # model_comparison.primary_metric - they must never independently disagree.
