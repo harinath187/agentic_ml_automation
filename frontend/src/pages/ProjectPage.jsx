@@ -53,7 +53,6 @@ function RunDetails({ runRecord, datasets, runError, onCancel, onSubmitClarifica
       {runRecord.status === "running" && (
         <>
           <RunProgress status="running" currentStep={runRecord.current_step} />
-          {runRecord.started_at && <p className="muted">Started at {runRecord.started_at}.</p>}
           {runRecord.plan ? <PlanSummary plan={runRecord.plan} /> : <p className="muted">Waiting for the Planner to decide an approach...</p>}
           <button className="btn btn-outline btn-sm" onClick={onCancel}>Cancel</button>
         </>

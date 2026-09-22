@@ -29,6 +29,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
@@ -173,6 +174,26 @@ def _predict_proba_fn(fitted, test_df, target_column, time_column):
     X = _feature_frame(test_df, target_column, time_column)
     proba = model.predict_proba(X)
     return proba[:, 1]
+
+
+class _CalibratedSVC:
+    """SVC with probability estimates via CalibratedClassifierCV, since SVC's
+    own `probability=True` was deprecated in sklearn 1.9. Forwards all kwargs
+    (C, kernel, random_state, ...) to the inner SVC."""
+
+    def __init__(self, **svc_params):
+        self._svc_params = svc_params
+        self._model = CalibratedClassifierCV(SVC(**svc_params), ensemble=False)
+
+    def fit(self, X, y):
+        self._model.fit(X, y)
+        return self
+
+    def predict(self, X):
+        return self._model.predict(X)
+
+    def predict_proba(self, X):
+        return self._model.predict_proba(X)
 
 
 def _make_classifier(estimator_cls, **fixed_params):
@@ -406,7 +427,7 @@ def _classification_registry() -> list[ModelDefinition]:
     xgb_train, xgb_predict, xgb_proba = _xgboost_classifier_train_predict()
     lgbm_train, lgbm_predict, lgbm_proba = _lightgbm_classifier_train_predict()
     dtree_train, dtree_predict, dtree_proba = _make_classifier(DecisionTreeClassifier, random_state=42)
-    svm_train, svm_predict, svm_proba = _make_scaled_classifier(SVC, probability=True, random_state=42)
+    svm_train, svm_predict, svm_proba = _make_scaled_classifier(_CalibratedSVC, random_state=42)
     knn_train, knn_predict, knn_proba = _make_scaled_classifier(KNeighborsClassifier)
     nb_train, nb_predict, nb_proba = _make_classifier(GaussianNB)
     mlp_train, mlp_predict, mlp_proba = _make_scaled_classifier(MLPClassifier, random_state=42, max_iter=500)

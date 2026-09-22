@@ -263,6 +263,53 @@ the start of every run, and `RandomForest`/`XGBoost`/`LightGBM` candidates
 (`tools/model_registry.py`) all use a fixed `random_state`, alongside the
 existing fixed `random_state` in `tools/splitting.py`'s train/test split.
 
+## Model explainability and failure explanations (Phase 7)
+
+`tools/explainability.py` computes deterministic explainability for every
+trained candidate - feature importance, permutation importance, and SHAP
+importance for tree-based models, plus trend/seasonality/decomposition
+signals for forecasting - using plain sklearn/numpy/statsmodels/shap
+arithmetic, no LLM. It is best-effort, never mandatory: a model/technique
+that doesn't apply (a baseline predictor, a statistical forecaster with no
+feature matrix, SHAP without a tree structure, `shap` not installed) reports
+`supported=False` with a `reason_unsupported` rather than erroring or
+fabricating a substitute. This is the ground truth `agents/recommender.py`'s
+explanation narrative is checked against.
+
+`tools/failure_analysis.py` deterministically classifies why a candidate
+model failed to train (missing dependency, unsupported validation strategy,
+invalid input, insufficient data, etc.) and can ask the LLM for a short
+plain-language explanation of that classification - the LLM explains an
+already-determined failure reason, it never decides what the reason was.
+
+## Classification improvement cycles
+
+`tools/classification_cycle.py::run_classification_cycles` is a separate,
+fully deterministic (no LLM, no AutoGluon) classification-only workflow,
+independent of the Phase 1-10 pipeline above:
+
+- A one-time stratified TRAIN/VALIDATION/TEST split
+  (`tools/splitting.py::split_train_val_test`) carves off TEST once; only
+  TRAIN/VALIDATION are used for model selection across improvement cycles.
+- Up to `max_cycles` (default 3): cycle 1 trains every classification
+  candidate from `tools/model_registry.py` with default hyperparameters;
+  cycles 2-3 apply a deterministic, data-driven adjustment (class-weight
+  balancing and/or minority oversampling when the target is imbalanced,
+  otherwise a small fixed hyperparameter variant), never a blind identical
+  retrain.
+- Stops early the moment any candidate's validation metrics satisfy every
+  configured `acceptance_criteria` threshold; otherwise runs all `max_cycles`
+  and returns `status: "threshold_not_met"`.
+- The best model is selected by `selection_metric` on validation metrics
+  across all cycles, then evaluated once, separately, on the held-out TEST
+  set.
+- Transient failures (timeout/connection/I/O) are retried via
+  `tools/technical_retry.py` without advancing the cycle counter; a
+  permanent failure (missing target column, invalid/insufficient data,
+  unsupported model) is never retried.
+
+See `tests/test_classification_cycle.py` for the full behavioral contract.
+
 ## Production readiness (Phase 9)
 
 The API layer (`api/`) moved off in-memory dicts and one-thread-per-run onto

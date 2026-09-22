@@ -331,6 +331,7 @@ function formatLogValue(value) {
         {value.map((item, index) => (
           <span key={`${String(item)}-${index}`} className="log-compact-item">
             {typeof item === "object" && item !== null ? formatLogValue(item) : String(item)}
+            {index < value.length - 1 ? "," : ""}
           </span>
         ))}
       </span>

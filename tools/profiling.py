@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 import re
+import warnings
 from typing import Optional
 
 import pandas as pd
@@ -40,7 +41,9 @@ def _looks_like_datetime(series: pd.Series, sample_size: int = 20) -> bool:
     if sample.empty:
         return False
     try:
-        pd.to_datetime(sample, errors="raise")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Could not infer format", category=UserWarning)
+            pd.to_datetime(sample, errors="raise")
         return True
     except (ValueError, TypeError):
         return False

@@ -234,12 +234,33 @@ def build_plan(
     prompt_parts = [
         f"Business problem description:\n{business_description}",
     ]
-    schema_for_prompt = dict(schema_summary)
     if dataset_profile is not None:
-      schema_for_prompt["text_columns"] = list(dataset_profile.text_columns)
-    prompt_parts.append(
-      f"Dataset schema summary (JSON):\n{json.dumps(schema_for_prompt, separators=(',', ':'))}"
-    )
+        # DatasetProfile.columns already carries name/dtype/missing/cardinality/
+        # numeric-stats per column, so the full schema_summary would just
+        # duplicate it and roughly double prompt size for nothing - send only
+        # what DatasetProfile doesn't already cover (dtype strings and,
+        # for non-numeric columns, avg_rows_per_value).
+        dtype_by_column = {
+            col["name"]: col["dtype"] for col in schema_summary.get("columns", [])
+        }
+        avg_rows_by_column = {
+            col["name"]: col["avg_rows_per_value"]
+            for col in schema_summary.get("columns", [])
+            if "avg_rows_per_value" in col
+        }
+        prompt_parts.append(
+            "Column dtypes (JSON, name -> pandas dtype string):\n"
+            + json.dumps(dtype_by_column, separators=(",", ":"))
+        )
+        if avg_rows_by_column:
+            prompt_parts.append(
+                "Non-numeric column avg rows per distinct value (JSON):\n"
+                + json.dumps(avg_rows_by_column, separators=(",", ":"))
+            )
+    else:
+        prompt_parts.append(
+            f"Dataset schema summary (JSON):\n{json.dumps(schema_summary, separators=(',', ':'))}"
+        )
     if dataset_profile is not None:
         prompt_parts.append(f"Dataset profile (JSON):\n{dataset_profile.model_dump_json()}")
     if target_analysis is not None:
