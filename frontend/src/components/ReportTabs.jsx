@@ -703,6 +703,7 @@ function FlatModelMetricsTable({ models, bestModel }) {
 
 function FailureSummary({ summary, explanation }) {
   if (!summary) return null;
+  if (summary.dataset_suitability === "suitable_with_warnings") return null;
   const suitabilityLabel = {
     suitable: "Dataset checks passed",
     suitable_with_warnings: "Dataset is usable with warnings",
@@ -711,17 +712,19 @@ function FailureSummary({ summary, explanation }) {
 
   return (
     <section className="model-health-panel">
-      <div className="model-health-header">
-        <div>
-          <h3>Model health</h3>
-          <p className="muted">{suitabilityLabel}</p>
+      {summary.dataset_suitability !== "suitable_with_warnings" && (
+        <div className="model-health-header">
+          <div>
+            <h3>Model health</h3>
+            <p className="muted">{suitabilityLabel}</p>
+          </div>
+          <span className={`status-pill status-pill--${summary.dataset_suitability === "not_suitable" ? "error" : "warning"}`}>
+            {summary.successful_model_count} of {summary.candidate_count} models succeeded
+          </span>
         </div>
-        <span className={`status-pill status-pill--${summary.dataset_suitability === "not_suitable" ? "error" : "warning"}`}>
-          {summary.successful_model_count} of {summary.candidate_count} models succeeded
-        </span>
-      </div>
+      )}
 
-      {explanation?.summary && (
+      {explanation?.summary && summary.dataset_suitability !== "suitable_with_warnings" && (
         <div className="model-health-explanation">
           <strong>What this means</strong>
           <p>{explanation.summary}</p>
@@ -733,7 +736,7 @@ function FailureSummary({ summary, explanation }) {
         </div>
       )}
 
-      {summary.dataset_issues?.length > 0 && (
+      {summary.dataset_issues?.length > 0 && summary.dataset_suitability !== "suitable_with_warnings" && (
         <div className="model-health-list">
           <h4>Dataset issues</h4>
           {summary.dataset_issues.map((issue) => (
@@ -767,8 +770,8 @@ function ModelsTab({ runRecord }) {
   const comparisonResults = metrics.model_comparison?.results;
   return (
     <div>
-      <p className="muted">
-        Evaluation metric: {metrics.eval_metric}
+      <p className="eval-metric-highlight">
+        Evaluation metric: <strong>{metrics.eval_metric}</strong>
         {metrics.per_entity && ` — averaged across ${metrics.entities_trained} entities`}
       </p>
       <FailureSummary summary={metrics.failure_summary} explanation={metrics.failure_explanation} />

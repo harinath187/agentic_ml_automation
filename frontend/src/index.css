@@ -1059,6 +1059,17 @@ input:focus {
   color: var(--danger);
 }
 
+.eval-metric-highlight {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.12));
+  border: 1px solid var(--accent, #6366f1);
+  color: var(--text-primary, inherit);
+  font-size: 0.95em;
+  margin-bottom: 12px;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
@@ -1556,6 +1567,8 @@ tr.best-row td {
 .plan-row dt {
   font-size: 0.85em;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .plan-row dd {
   margin: 0;

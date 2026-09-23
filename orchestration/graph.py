@@ -286,14 +286,35 @@ def node_cleaning(state: PipelineState) -> PipelineState:
     entity_column = plan.entity_column if plan.scope_strategy == ScopeStrategy.POOLED else None
     text_columns = [c for c in state.get("dataset_profile", DatasetProfile(row_count=0, column_count=0)).text_columns
                     if c in plan.feature_columns]
-    cleaned_df, log = cleaning.clean_data(
-        state["df"],
+    df = state["df"]
+    problem_type = plan.problem_type.value if plan.problem_type else "regression"
+
+    # Leakage-safe cleaning (TabularCleaner, tools/cleaning.py): node_split
+    # below re-runs splitting.split_data() on the (row-count/row-order
+    # preserving) engineered_df with these exact same arguments and gets a
+    # deterministic partition (fixed random_state for shuffle-splits, a
+    # position-based chronological cutoff for forecasting) - fixed_state
+    # here reproduces that same partition early, purely to fit imputation/
+    # outlier statistics on TRAIN rows only, then applies those stored
+    # statistics to every row (train and test alike) via transform(). This
+    # avoids computing medians/modes/IQR-bounds over train+test combined,
+    # which the previous clean-before-split ordering did silently.
+    train_for_fit, _test_for_fit, _ = splitting.split_data(
+        df,
+        problem_type=problem_type,
+        time_column=plan.time_column,
+        entity_column=entity_column,
+        target_column=plan.target_column,
+    )
+    cleaner = cleaning.TabularCleaner(aggressive_outlier_handling=aggressive)
+    cleaner.fit(
+        train_for_fit,
         target_column=plan.target_column,
         time_column=plan.time_column,
         entity_column=entity_column,
         text_columns=text_columns,
-        aggressive_outlier_handling=aggressive,
     )
+    cleaned_df, log = cleaner.transform(df)
     return {"cleaned_df": cleaned_df, "cleaning_log": log}
 
 
@@ -494,13 +515,21 @@ def node_per_entity_pipeline(state: PipelineState) -> PipelineState:
         try:
             text_columns = [c for c in state.get("dataset_profile", DatasetProfile(row_count=0, column_count=0)).text_columns
                             if c in plan.feature_columns]
-            cleaned, _ = cleaning.clean_data(
-                subset,
+            # Same leakage-safe fit/transform split as node_cleaning: fit
+            # imputation/outlier stats on this entity's TRAIN rows only
+            # (identified via the same deterministic split re-run below on
+            # engineered data), then apply those stats to the whole subset.
+            train_for_fit, _test_for_fit, _ = splitting.split_data(
+                subset, problem_type=problem_type, time_column=plan.time_column
+            )
+            entity_cleaner = cleaning.TabularCleaner(aggressive_outlier_handling=aggressive)
+            entity_cleaner.fit(
+                train_for_fit,
                 target_column=plan.target_column,
                 time_column=plan.time_column,
                 text_columns=text_columns,
-                aggressive_outlier_handling=aggressive,
             )
+            cleaned, _ = entity_cleaner.transform(subset)
             engineered, _ = feature_engineering.engineer_features(
                 cleaned,
                 problem_type=problem_type,
