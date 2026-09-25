@@ -378,9 +378,10 @@ machine, no external services, per the project's deliberate scope (see
 
 Tool-level tests (loader/EDA/cleaning/feature engineering/splitting) and the
 LLM-safety tests run without any extra setup. `tests/test_pipeline_integration.py`
-additionally requires `langgraph` and `autogluon.tabular` to be installed
-(via `requirements.txt`) and is skipped automatically otherwise. No API key
-is needed for tests - the Planner/Evaluator/Reporter LLM calls are stubbed.
+and `tests/test_phase10_e2e_validation.py` additionally require `langgraph` and
+`autogluon.tabular`/`autogluon.timeseries` to be installed (via `requirements.txt`)
+and are skipped automatically otherwise. No API key is needed for tests - the
+Planner/Evaluator/Reporter LLM calls are stubbed.
 
 ## End-to-end validation (Phase 10)
 

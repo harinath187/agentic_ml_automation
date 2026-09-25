@@ -135,6 +135,7 @@ def _row_to_response(row: dict) -> dict:
         "dataset_id": row.get("dataset_id"),
         "workspace_id": row.get("workspace_id"),
         "project_id": row.get("project_id"),
+        "business_description": row.get("business_description"),
     }
     if row["status"] == db.NEEDS_CLARIFICATION:
         record["clarification_question"] = row["clarification_question"]

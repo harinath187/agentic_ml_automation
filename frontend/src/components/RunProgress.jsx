@@ -8,8 +8,8 @@
 const STAGES = [
   { key: "prepare", label: "Preparing data", nodes: ["ingest", "profile_data", "quality_analysis", "detect_problem"] },
   { key: "plan", label: "Planning", nodes: ["planner_agent", "validate_plan"] },
-  { key: "select", label: "Selecting features", nodes: ["filter_entity", "feature_selection"] },
-  { key: "clean", label: "Cleaning & engineering", nodes: ["eda", "clean", "feature_engineer"] },
+  { key: "select", label: "Cleaning & feature selection", nodes: ["filter_entity", "feature_selection", "eda", "clean"] },
+  { key: "clean", label: "Feature engineering", nodes: ["feature_engineer"] },
   { key: "split", label: "Splitting data", nodes: ["split"] },
   { key: "tune", label: "Tuning models", nodes: ["tune_models"] },
   { key: "train", label: "Training models", nodes: ["train", "per_entity_pipeline", "hierarchical_train"] },

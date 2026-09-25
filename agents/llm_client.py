@@ -30,16 +30,19 @@ RATE_LIMIT_MAX_ATTEMPTS = 5
 RATE_LIMIT_BASE_DELAY_S = 2.0
 RATE_LIMIT_MAX_DELAY_S = 30.0
 
-# Last-resort prompt-size guard (Phase 9 413-fix). ~24000 chars is roughly
-# 6000 tokens at ~4 chars/token, leaving margin under Groq free-tier's 8000
-# TPM cap for openai/gpt-oss-120b once the system prompt/schema hint and
-# response tokens are accounted for. This is NOT the primary fix - call
-# sites (agents/evaluator.py, agents/recommender.py, agents/reporter.py)
-# should already be sending a trimmed view (tools.evaluation.to_llm_summary()
-# or equivalent) long before a prompt could reach this size. This guard
-# exists only so an oversized prompt becomes a loud, logged, debuggable
-# event during development instead of a silent Groq 413 at request time.
-DEFAULT_MAX_PROMPT_CHARS = 24000
+# Last-resort prompt-size guard (Phase 9 413-fix). Originally 24000 chars on
+# a ~4 chars/token assumption, but a live 413 measured 8185 actual tokens
+# (prompt + completion) against Groq free-tier's 8000 TPM cap for
+# openai/gpt-oss-120b - the compact JSON schema hint (punctuation-heavy)
+# tokenizes denser than ~4 chars/token, so that budget wasn't leaving real
+# margin. Tightened to ~3 chars/token-equivalent with headroom. This is NOT
+# the primary fix - call sites (agents/evaluator.py, agents/recommender.py,
+# agents/reporter.py) should already be sending a trimmed view
+# (tools.evaluation.to_llm_summary() or equivalent) long before a prompt
+# could reach this size. This guard exists only so an oversized prompt
+# becomes a loud, logged, debuggable event during development instead of a
+# silent Groq 413 at request time.
+DEFAULT_MAX_PROMPT_CHARS = 16000
 _TRUNCATION_MARKER = "\n\n[...truncated - payload exceeded token budget...]"
 
 # Upper bound on completion tokens for every structured-output call. Groq's
@@ -47,8 +50,9 @@ _TRUNCATION_MARKER = "\n\n[...truncated - payload exceeded token budget...]"
 # unset lets the model's default completion allowance silently eat into the
 # same budget DEFAULT_MAX_PROMPT_CHARS is trying to protect. Every schema in
 # agents/schemas.py used with call_llm_json is a handful of short fields, so
-# this is generous headroom, not a tight fit.
-DEFAULT_MAX_COMPLETION_TOKENS = 2048
+# 1024 is still generous headroom, not a tight fit - lowered from 2048 as
+# part of the same TPM-cap fix above.
+DEFAULT_MAX_COMPLETION_TOKENS = 1024
 
 
 class LLMCallError(RuntimeError):

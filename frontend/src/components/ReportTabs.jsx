@@ -102,6 +102,15 @@ function DistributionHistogram({ distributions }) {
   );
 }
 
+function BusinessStatementTab({ runRecord }) {
+  if (!runRecord.business_description) return <Unavailable label="Business statement" />;
+  return (
+    <div className="result-section-panel">
+      <p className="business-interpretation-copy">{runRecord.business_description}</p>
+    </div>
+  );
+}
+
 function OverviewTab({ runRecord }) {
   const { plan } = runRecord;
   return (
@@ -918,6 +927,7 @@ function ChartsTab({ runRecord }) {
 }
 
 export const REPORT_TABS = [
+  { id: "business-statement", label: "Business Statement", Component: BusinessStatementTab },
   { id: "overview", label: "Experiment Plan", Component: OverviewTab },
   { id: "data-quality", label: "Data Quality", Component: DataQualityTab },
   { id: "eda", label: "EDA", Component: EdaTab },
