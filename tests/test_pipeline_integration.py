@@ -52,54 +52,11 @@ def _patch_agents(monkeypatch, plan: ExperimentPlan):
     )
 
 
-def test_classification_pipeline_end_to_end(classification_df, monkeypatch, tmp_path):
-    csv_path = tmp_path / "classification.csv"
-    classification_df.to_csv(csv_path, index=False)
-
-    plan = ExperimentPlan(
-        problem_type=ProblemType.CLASSIFICATION,
-        target_column="churn",
-        pipeline_steps=["clean", "engineer_features", "split", "train"],
-        candidate_model_families=["LightGBM"],
-    )
-    _patch_agents(monkeypatch, plan)
-
-    from orchestration.graph import run_pipeline
-
-    result = run_pipeline(
-        file_path=str(csv_path),
-        business_description="Predict customer churn",
-        max_retries=1,
-    )
-
-    assert result["decision"].best_model is not None
-    assert result["metrics"]["models"]
-    assert result["report_path"]
-    assert result["recommendation"].recommended_model == result["decision"].best_model
-
-
-def test_regression_pipeline_end_to_end(regression_df, monkeypatch, tmp_path):
-    csv_path = tmp_path / "regression.csv"
-    regression_df.to_csv(csv_path, index=False)
-
-    plan = ExperimentPlan(
-        problem_type=ProblemType.REGRESSION,
-        target_column="price",
-        pipeline_steps=["clean", "engineer_features", "split", "train"],
-        candidate_model_families=["LightGBM"],
-    )
-    _patch_agents(monkeypatch, plan)
-
-    from orchestration.graph import run_pipeline
-
-    result = run_pipeline(
-        file_path=str(csv_path),
-        business_description="Predict house price",
-        max_retries=1,
-    )
-
-    assert result["decision"].best_model is not None
-    assert result["metrics"]["models"]
+# classification/regression end-to-end coverage lives in
+# tests/test_phase10_e2e_validation.py (test_classification_full_pipeline_upload_to_report /
+# test_regression_full_pipeline_upload_to_report), which asserts a strict superset of what a
+# basic pipeline smoke test here would - forecasting is kept here because its LightGBM/
+# feature-engineering path isn't exercised by any phase10 forecasting variant.
 
 
 def test_forecasting_pipeline_end_to_end(forecasting_df, monkeypatch, tmp_path):
